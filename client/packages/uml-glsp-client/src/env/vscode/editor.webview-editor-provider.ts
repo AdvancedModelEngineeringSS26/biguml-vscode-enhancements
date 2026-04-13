@@ -7,6 +7,8 @@
  * SPDX-License-Identifier: MIT
  *********************************************************************************/
 import { ReactHtmlProvider, TYPES, WebviewEditorProvider } from '@borkdominik-biguml/big-vscode/vscode';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import {
     ActionMessageNotification,
     ClientStateChangeNotification,
@@ -36,11 +38,13 @@ import {
     type CustomDocumentBackup,
     type CustomDocumentBackupContext,
     type CustomDocumentEditEvent,
+    type CustomDocumentOpenContext,
     type Event,
-    type Uri,
+    Uri,
     type Webview,
     type WebviewPanel,
-    type WebviewView
+    type WebviewView,
+    workspace
 } from 'vscode';
 import { Messenger } from 'vscode-messenger';
 import type { MessageParticipant } from 'vscode-messenger-common';
@@ -51,6 +55,11 @@ export const UmlDiagramEditorSettings = Symbol('UmlDiagramEditorSettings');
 export interface UmlDiagramEditorSettings {
     viewType: string;
     diagramType: string;
+}
+
+interface UmlDiagramCustomDocument extends CustomDocument {
+    backupUri?: Uri;
+    restoredModelUri?: Uri;
 }
 
 @injectable()
@@ -78,8 +87,29 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         return this.connector.onDidChangeCustomDocument as Event<CustomDocumentEditEvent<CustomDocument>>;
     }
 
+    override openCustomDocument(uri: Uri, openContext: CustomDocumentOpenContext, _token: CancellationToken): CustomDocument {
+        const customDocument = {
+            uri,
+            // Do not delete restored temp files here. The GLSP model can still reference
+            // the restore URI for follow-up backup/save actions across reopen cycles.
+            dispose: () => {}
+        } as UmlDiagramCustomDocument;
+
+        if (openContext.backupId) {
+            customDocument.backupUri = Uri.parse(openContext.backupId);
+        }
+
+        return customDocument;
+    }
+
     override async resolveCustomEditor(document: CustomDocument, webviewPanel: WebviewPanel, token: CancellationToken): Promise<void> {
-        const client = await this.prepareGLSPClient(document, webviewPanel);
+        let modelUri = document.uri;
+        if (this.isUmlDiagramDocument(document) && document.backupUri) {
+            modelUri = await this.createRestoreModelUri(document.backupUri, document.uri);
+            document.restoredModelUri = modelUri;
+        }
+
+        const client = await this.prepareGLSPClient(document, webviewPanel, modelUri);
         this.clients.set(document.uri.toString(), client);
         return super.resolveCustomEditor(document, webviewPanel, token);
     }
@@ -103,6 +133,9 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
     }
 
     override saveCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Thenable<void> {
+        if (this.isUmlDiagramDocument(document) && document.restoredModelUri) {
+            return this.connector.saveDocument(document, document.uri);
+        }
         return this.connector.saveDocument(document);
     }
 
@@ -114,23 +147,48 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         return this.connector.revertDocument(document, this.settings.diagramType);
     }
 
-    override backupCustomDocument(
-        _document: CustomDocument,
+    override async backupCustomDocument(
+        document: CustomDocument,
         context: CustomDocumentBackupContext,
         _cancellation: CancellationToken
-    ): Thenable<CustomDocumentBackup> {
-        return Promise.resolve({ id: context.destination.toString(), delete: () => undefined });
+    ): Promise<CustomDocumentBackup> {
+        await this.connector.saveDocument(document, context.destination);
+
+        return {
+            id: context.destination.toString(),
+            delete: async () => {
+                try {
+                    await workspace.fs.delete(context.destination);
+                } catch {
+                    // Backup may already be gone; ignore cleanup errors.
+                }
+            }
+        };
     }
 
     protected generateClientId(): string {
         return `${this.settings.diagramType}_${this.viewCounter++}`;
     }
 
-    protected async prepareGLSPClient(document: CustomDocument, webviewPanel: WebviewPanel): Promise<GlspVscodeClient> {
+    protected isUmlDiagramDocument(document: CustomDocument): document is UmlDiagramCustomDocument {
+        return 'backupUri' in document;
+    }
+
+    protected async createRestoreModelUri(backupUri: Uri, sourceUri: Uri): Promise<Uri> {
+        const backupContent = await workspace.fs.readFile(backupUri);
+        const sourceExt = path.extname(sourceUri.fsPath);
+        const sourceDir = path.dirname(sourceUri.fsPath);
+        const restoreFileName = `.biguml-restore-${randomUUID()}${sourceExt}`;
+        const restoreUri = Uri.file(path.join(sourceDir, restoreFileName));
+        await workspace.fs.writeFile(restoreUri, backupContent);
+        return restoreUri;
+    }
+
+    protected async prepareGLSPClient(document: CustomDocument, webviewPanel: WebviewPanel, modelUri: Uri): Promise<GlspVscodeClient> {
         const clientId = this.generateClientId();
         const diagramIdentifier: GLSPDiagramIdentifier = {
             diagramType: this.settings.diagramType,
-            uri: EditorProvider.serializeUri(document.uri),
+            uri: EditorProvider.serializeUri(modelUri),
             clientId
         };
 
