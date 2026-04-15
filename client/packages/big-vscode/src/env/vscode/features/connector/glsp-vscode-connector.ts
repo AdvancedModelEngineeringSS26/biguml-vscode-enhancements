@@ -16,6 +16,7 @@ import {
     type GlspVscodeServer,
     MessageOrigin,
     type MessageProcessingResult,
+    RequestModelAction,
     RedoAction,
     type SetDirtyStateAction,
     UndoAction
@@ -66,6 +67,7 @@ export class BigGlspVSCodeConnector<
     readonly onClientActionMessage = this.onClientActionMessageEmitter.event;
     protected readonly onVSCodeActionMessageEmitter = new vscode.EventEmitter<ActionMessage>();
     readonly onVSCodeActionMessage = this.onVSCodeActionMessageEmitter.event;
+    protected readonly clientDirtyState = new Map<string, boolean>();
 
     /**
      * Set of actions that are handled by vscode and should not be propagated to the server.
@@ -118,11 +120,13 @@ export class BigGlspVSCodeConnector<
                 this.clientSelectionMap.delete(client.clientId);
                 this.clientProgressMap.get(client.clientId)?.forEach(reporter => reporter.deferred.resolve());
                 this.clientProgressMap.delete(client.clientId);
+                this.clientDirtyState.delete(client.clientId);
             })
         ];
         this.clientMap.set(client.clientId, client);
         this.documentMap.set(client.document, client.clientId);
         this.clientProgressMap.set(client.clientId, new Map());
+        this.clientDirtyState.set(client.clientId, false);
 
         // Cleanup when client panel is closed
         const panelOnDisposeListener = client.webviewEndpoint.webviewPanel.onDidDispose(async () => {
@@ -167,6 +171,29 @@ export class BigGlspVSCodeConnector<
         });
     }
 
+    override async revertDocument(document: TDocument, diagramType: string): Promise<void> {
+        const clientId = this.documentMap.get(document);
+        if (!clientId) {
+            if (this.options.logging) {
+                console.error('Revert failed: Document not registered');
+            }
+            throw new Error('Revert failed.');
+        }
+
+        const sourceUri = ((document as any).sourceUri as vscode.Uri | undefined)?.toString() ?? document.uri.toString();
+
+        this.dispatchAction(
+            RequestModelAction.create({
+                options: {
+                    sourceUri,
+                    diagramType,
+                    forceReloadFromDisk: true
+                }
+            }),
+            clientId
+        );
+    }
+
     protected override sendMessageToClient(clientId: string, message: unknown): void {
         const client = this.clientMap.get(clientId);
         if (client && ActionMessage.is(message)) {
@@ -207,8 +234,10 @@ export class BigGlspVSCodeConnector<
         if (client) {
             const reason = message.action.reason || '';
             if (reason === 'save') {
+                this.clientDirtyState.set(client.clientId, false);
                 this.onDocumentSavedEmitter.fire(client.document);
             } else if (message.action.isDirty && message.action.reason === 'operation') {
+                this.clientDirtyState.set(client.clientId, true);
                 this.onDidChangeCustomDocumentEventEmitter.fire({
                     document: client.document,
                     undo: () => {
@@ -218,6 +247,8 @@ export class BigGlspVSCodeConnector<
                         this.sendActionToClient(client.clientId, RedoAction.create());
                     }
                 });
+            } else {
+                this.clientDirtyState.set(client.clientId, message.action.isDirty);
             }
         }
 
@@ -276,8 +307,9 @@ export class BigGlspVSCodeConnector<
     }
 
     protected disposeClientSessionArgs(client: GlspVscodeClient<TDocument>): Args | undefined {
+        const sourcePath = ((client.document as any).sourceUri as vscode.Uri | undefined)?.path ?? client.document.uri.path;
         return {
-            ['sourceUri']: client.document.uri.path
+            ['sourceUri']: sourcePath
         };
     }
 }

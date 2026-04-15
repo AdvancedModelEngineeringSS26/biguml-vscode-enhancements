@@ -60,6 +60,7 @@ export interface UmlDiagramEditorSettings {
 interface UmlDiagramCustomDocument extends CustomDocument {
     backupUri?: Uri;
     restoredModelUri?: Uri;
+    sourceUri?: Uri;
 }
 
 @injectable()
@@ -68,6 +69,7 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
     protected readonly themeIntegration: ThemeIntegration;
 
     protected clients = new Map<string, GlspVscodeClient>();
+    protected restoreSourceUriByRestoreUri = new Map<string, Uri>();
     protected viewCounter = 0;
 
     constructor(@inject(UmlDiagramEditorSettings) protected readonly settings: UmlDiagramEditorSettings) {
@@ -88,11 +90,22 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
     }
 
     override openCustomDocument(uri: Uri, openContext: CustomDocumentOpenContext, _token: CancellationToken): CustomDocument {
+        const sourceUri = this.isRestoreUri(uri) ? (this.restoreSourceUriByRestoreUri.get(uri.toString()) ?? uri) : uri;
         const customDocument = {
             uri,
-            // Do not delete restored temp files here. The GLSP model can still reference
-            // the restore URI for follow-up backup/save actions across reopen cycles.
-            dispose: () => {}
+            backupUri: undefined,
+            restoredModelUri: undefined,
+            sourceUri,
+            dispose: () => {
+                const restoreUri = customDocument.restoredModelUri;
+                if (restoreUri) {
+                    void Promise.resolve(workspace.fs.delete(restoreUri)).catch(() => {
+                        // Restore files are best-effort cleanup.
+                    });
+                    this.restoreSourceUriByRestoreUri.delete(restoreUri.toString());
+                }
+                this.restoreSourceUriByRestoreUri.delete(uri.toString());
+            }
         } as UmlDiagramCustomDocument;
 
         if (openContext.backupId) {
@@ -104,9 +117,11 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
 
     override async resolveCustomEditor(document: CustomDocument, webviewPanel: WebviewPanel, token: CancellationToken): Promise<void> {
         let modelUri = document.uri;
-        if (this.isUmlDiagramDocument(document) && document.backupUri) {
-            modelUri = await this.createRestoreModelUri(document.backupUri, document.uri);
+        if (this.isUmlDiagramDocument(document)) {
+            const sourceUri = document.sourceUri ?? document.uri;
+            modelUri = await this.createRestoreModelUri(document.backupUri ?? sourceUri, sourceUri);
             document.restoredModelUri = modelUri;
+            this.restoreSourceUriByRestoreUri.set(modelUri.toString(), sourceUri);
         }
 
         const client = await this.prepareGLSPClient(document, webviewPanel, modelUri);
@@ -134,7 +149,7 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
 
     override saveCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Thenable<void> {
         if (this.isUmlDiagramDocument(document) && document.restoredModelUri) {
-            return this.connector.saveDocument(document, document.uri);
+            return this.connector.saveDocument(document, document.sourceUri ?? document.uri);
         }
         return this.connector.saveDocument(document);
     }
@@ -144,26 +159,21 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
     }
 
     override revertCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Thenable<void> {
+        if (this.isUmlDiagramDocument(document) && document.restoredModelUri) {
+            // Session edits are isolated in a temporary restore file.
+            // For discard, closing this editor is enough; avoid revert RPC races during close.
+            return Promise.resolve();
+        }
         return this.connector.revertDocument(document, this.settings.diagramType);
     }
 
-    override async backupCustomDocument(
-        document: CustomDocument,
+    override backupCustomDocument(
+        _document: CustomDocument,
         context: CustomDocumentBackupContext,
         _cancellation: CancellationToken
-    ): Promise<CustomDocumentBackup> {
-        await this.connector.saveDocument(document, context.destination);
-
-        return {
-            id: context.destination.toString(),
-            delete: async () => {
-                try {
-                    await workspace.fs.delete(context.destination);
-                } catch {
-                    // Backup may already be gone; ignore cleanup errors.
-                }
-            }
-        };
+    ): Thenable<CustomDocumentBackup> {
+        // Avoid SaveModelAction during backup to keep editor dirty-state lifecycle stable.
+        return Promise.resolve({ id: context.destination.toString(), delete: () => undefined });
     }
 
     protected generateClientId(): string {
@@ -171,16 +181,26 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
     }
 
     protected isUmlDiagramDocument(document: CustomDocument): document is UmlDiagramCustomDocument {
-        return 'backupUri' in document;
+        return 'backupUri' in document && 'restoredModelUri' in document && 'sourceUri' in document;
     }
 
-    protected async createRestoreModelUri(backupUri: Uri, sourceUri: Uri): Promise<Uri> {
-        const backupContent = await workspace.fs.readFile(backupUri);
-        const sourceExt = path.extname(sourceUri.fsPath);
-        const sourceDir = path.dirname(sourceUri.fsPath);
+    protected isRestoreUri(uri: Uri): boolean {
+        return path.basename(uri.fsPath).startsWith('.biguml-restore-');
+    }
+
+    protected async createRestoreModelUri(sourceUri: Uri, targetUri: Uri): Promise<Uri> {
+        let sourceContent: Uint8Array;
+        try {
+            sourceContent = await workspace.fs.readFile(sourceUri);
+        } catch {
+            // VS Code may provide a stale backupId on reload. Fall back to the actual source document.
+            sourceContent = await workspace.fs.readFile(targetUri);
+        }
+        const sourceExt = path.extname(targetUri.fsPath);
+        const sourceDir = path.dirname(targetUri.fsPath);
         const restoreFileName = `.biguml-restore-${randomUUID()}${sourceExt}`;
         const restoreUri = Uri.file(path.join(sourceDir, restoreFileName));
-        await workspace.fs.writeFile(restoreUri, backupContent);
+        await workspace.fs.writeFile(restoreUri, sourceContent);
         return restoreUri;
     }
 
