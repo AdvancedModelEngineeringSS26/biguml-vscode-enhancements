@@ -13,9 +13,12 @@ import { minimapModule } from '@borkdominik-biguml/big-minimap/glsp-client';
 import { outlineModule } from '@borkdominik-biguml/big-outline/glsp-client';
 import { propertyPaletteModule } from '@borkdominik-biguml/big-property-palette/glsp-client';
 import { SemanticModelResponseAction } from '@borkdominik-biguml/uml-glsp-server';
+import { ClassDiagramNodeTypes } from '@borkdominik-biguml/uml-glsp-server/gen/common';
 import {
     FeatureModule,
     overrideModelElement,
+    RectangularNodeView,
+    svg,
     type ContainerConfiguration,
     type IActionDispatcher,
     type IDiagramStartup,
@@ -23,6 +26,7 @@ import {
     bindAsService,
     bindOrRebind
 } from '@eclipse-glsp/client';
+import { GClassNode } from '../uml/elements/class/class.element.js';
 import { type MaybePromise } from '@eclipse-glsp/protocol';
 import { GLSPStarter } from '@eclipse-glsp/vscode-integration-webview';
 import '@eclipse-glsp/vscode-integration-webview/css/glsp-vscode.css';
@@ -43,7 +47,15 @@ import inversify = require('inversify');
 // Expose plugin API at module load time (synchronously, before any async handshake).
 // Scripts loaded as <script type="module"> after bundle.js can read window.glspAPI
 // and use it to construct ContainerModules before createContainer() is called.
-(window as any).glspAPI = { FeatureModule, overrideModelElement };
+(window as any).glspAPI = {
+    FeatureModule,
+    overrideModelElement,
+    svg,
+    RectangularNodeView,
+    GClassNode,
+    injectable: inversify.injectable,
+    CLASS_TYPE: ClassDiagramNodeTypes.CLASS
+};
 console.log('[UmlStarter] glspAPI exposed on window');
 
 class UmlStarter extends GLSPStarter {

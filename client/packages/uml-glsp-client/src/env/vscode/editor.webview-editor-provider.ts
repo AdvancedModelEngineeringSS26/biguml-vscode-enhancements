@@ -7,6 +7,8 @@
  * SPDX-License-Identifier: MIT
  *********************************************************************************/
 import { ReactHtmlProvider, TYPES, WebviewEditorProvider } from '@borkdominik-biguml/big-vscode/vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
     ActionMessageNotification,
     ClientStateChangeNotification,
@@ -31,6 +33,7 @@ import {
 import { inject, injectable } from 'inversify';
 import {
     EventEmitter,
+    workspace,
     type CancellationToken,
     type CustomDocument,
     type CustomDocumentBackup,
@@ -107,23 +110,34 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             console.log('[WebviewHost] __glspPlugins initialized before bundle load');
         </script>`;
 
-        // Phase 2: test plugin as a type="module" script placed after bundle.js.
-        // Module scripts evaluate in declaration order, so this runs after bundle.js
-        // has set window.glspAPI. The InitializeNotification (which triggers
-        // createContainer) arrives via postMessage — always after all module scripts
-        // have evaluated — so __glspPlugins will be populated in time.
+        // Phase 3: real rendering override via the exposed glspAPI.
+        // CustomClassView extends RectangularNodeView to render class nodes as
+        // green rounded rectangles, proving that plugin code can replace Sprotty views.
         const testPlugin = `<script type="module">
-            const api = window.glspAPI;
-            console.log('[Plugin] window.glspAPI accessible:', api);
-            console.log('[Plugin] FeatureModule:', api?.FeatureModule);
-            console.log('[Plugin] overrideModelElement:', api?.overrideModelElement);
+            const { FeatureModule, overrideModelElement, svg, RectangularNodeView, GClassNode, injectable, CLASS_TYPE } = window.glspAPI;
 
-            const testModule = new api.FeatureModule((bind, _unbind, _isBound, _rebind) => {
-                console.log('[Plugin] FeatureModule callback executed inside createContainer');
-            });
+            class CustomClassView extends RectangularNodeView {
+                render(element, context) {
+                    if (!this.isVisible(element, context)) return undefined;
+                    return svg('g', { class: { selected: element.selected, mouseover: element.hoverFeedback } },
+                        svg('rect', { attrs: {
+                            x: 0, y: 0,
+                            width: Math.max(0, element.bounds.width),
+                            height: Math.max(0, element.bounds.height),
+                            fill: '#4CAF50', rx: 8, ry: 8,
+                            stroke: '#2E7D32', 'stroke-width': 2
+                        }}),
+                        context.renderChildren(element)
+                    );
+                }
+            }
+            injectable()(CustomClassView);
 
-            window.__glspPlugins.push(testModule);
-            console.log('[Plugin] Pushed test FeatureModule, __glspPlugins length:', window.__glspPlugins.length);
+            window.__glspPlugins.push(new FeatureModule((bind, unbind, isBound, rebind) => {
+                overrideModelElement({ bind, unbind, isBound, rebind }, CLASS_TYPE, GClassNode, CustomClassView);
+                console.log('[Plugin] Overrode GClassNodeView with CustomClassView for type:', CLASS_TYPE);
+            }));
+            console.log('[Plugin] Plugin registered, __glspPlugins length:', window.__glspPlugins.length);
         </script>`;
 
         return html
