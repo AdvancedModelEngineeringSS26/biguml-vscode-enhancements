@@ -14,6 +14,8 @@ import { outlineModule } from '@borkdominik-biguml/big-outline/glsp-client';
 import { propertyPaletteModule } from '@borkdominik-biguml/big-property-palette/glsp-client';
 import { SemanticModelResponseAction } from '@borkdominik-biguml/uml-glsp-server';
 import {
+    FeatureModule,
+    overrideModelElement,
     type ContainerConfiguration,
     type IActionDispatcher,
     type IDiagramStartup,
@@ -38,15 +40,25 @@ import { UmlHostExtensionActionHandler } from './vscode-extension-action-handler
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import inversify = require('inversify');
 
+// Expose plugin API at module load time (synchronously, before any async handshake).
+// Scripts loaded as <script type="module"> after bundle.js can read window.glspAPI
+// and use it to construct ContainerModules before createContainer() is called.
+(window as any).glspAPI = { FeatureModule, overrideModelElement };
+console.log('[UmlStarter] glspAPI exposed on window');
+
 class UmlStarter extends GLSPStarter {
     createContainer(...containerConfiguration: ContainerConfiguration): inversify.Container {
+        const pluginModules: ContainerConfiguration = (window as any).__glspPlugins ?? [];
+        console.log('[UmlStarter] __glspPlugins at container creation time:', pluginModules);
+
         const container = createUmlDiagramContainer(
             ...containerConfiguration,
             outlineModule,
             minimapModule,
             propertyPaletteModule,
             codeGenerationModule,
-            advancedSearchModule
+            advancedSearchModule,
+            ...pluginModules
         );
 
         return container;

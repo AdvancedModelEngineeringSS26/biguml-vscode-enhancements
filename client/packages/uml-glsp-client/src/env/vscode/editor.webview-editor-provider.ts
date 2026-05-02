@@ -96,10 +96,39 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
 
     protected override resolveHtml(webview: Webview, context: CustomDocument): string {
         const clientId = this.clients.get(context.uri.toString())?.clientId ?? 'unknown';
-        return new ReactHtmlProvider({
+        const html = new ReactHtmlProvider({
             rootProvider: () => `<div id="${clientId}_container" style="height: 100%;"></div>`,
             ...this.options.htmlOptions
         }).createHtml(this.extensionContext, webview);
+
+        // Phase 1: inline script sets __glspPlugins before bundle.js runs.
+        const pluginBootstrap = `<script>
+            window.__glspPlugins = window.__glspPlugins ?? [];
+            console.log('[WebviewHost] __glspPlugins initialized before bundle load');
+        </script>`;
+
+        // Phase 2: test plugin as a type="module" script placed after bundle.js.
+        // Module scripts evaluate in declaration order, so this runs after bundle.js
+        // has set window.glspAPI. The InitializeNotification (which triggers
+        // createContainer) arrives via postMessage — always after all module scripts
+        // have evaluated — so __glspPlugins will be populated in time.
+        const testPlugin = `<script type="module">
+            const api = window.glspAPI;
+            console.log('[Plugin] window.glspAPI accessible:', api);
+            console.log('[Plugin] FeatureModule:', api?.FeatureModule);
+            console.log('[Plugin] overrideModelElement:', api?.overrideModelElement);
+
+            const testModule = new api.FeatureModule((bind, _unbind, _isBound, _rebind) => {
+                console.log('[Plugin] FeatureModule callback executed inside createContainer');
+            });
+
+            window.__glspPlugins.push(testModule);
+            console.log('[Plugin] Pushed test FeatureModule, __glspPlugins length:', window.__glspPlugins.length);
+        </script>`;
+
+        return html
+            .replace('<body>', `<body>\n${pluginBootstrap}`)
+            .replace('</body>', `${testPlugin}\n</body>`);
     }
 
     override saveCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Thenable<void> {
