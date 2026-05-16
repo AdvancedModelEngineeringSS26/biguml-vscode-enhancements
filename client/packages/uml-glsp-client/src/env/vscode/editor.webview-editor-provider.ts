@@ -158,22 +158,52 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         return this.connector.saveDocument(document, destination);
     }
 
-    override revertCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Thenable<void> {
+    override async revertCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Promise<void> {
         if (this.isUmlDiagramDocument(document) && document.restoredModelUri) {
-            // Session edits are isolated in a temporary restore file.
-            // For discard, closing this editor is enough; avoid revert RPC races during close.
-            return Promise.resolve();
+            // Delete the old restore file to clear any unsaved edits
+            try {
+                await workspace.fs.delete(document.restoredModelUri);
+            } catch {
+                // Restore file may already be deleted; ignore cleanup errors.
+            }
+            // Create a fresh restore file with current content from disk
+            const sourceUri = document.sourceUri ?? document.uri;
+            const newModelUri = await this.createRestoreModelUri(sourceUri, document.uri);
+            document.restoredModelUri = newModelUri;
+            this.restoreSourceUriByRestoreUri.set(newModelUri.toString(), sourceUri);
         }
+
         return this.connector.revertDocument(document, this.settings.diagramType);
     }
 
-    override backupCustomDocument(
-        _document: CustomDocument,
+    override async backupCustomDocument(
+        document: CustomDocument,
         context: CustomDocumentBackupContext,
         _cancellation: CancellationToken
-    ): Thenable<CustomDocumentBackup> {
-        // Avoid SaveModelAction during backup to keep editor dirty-state lifecycle stable.
-        return Promise.resolve({ id: context.destination.toString(), delete: () => undefined });
+    ): Promise<CustomDocumentBackup> {
+        // Create a proper backup file containing the current model content so VS Code
+        // can restore it later. Use restoredModelUri if present (session edits),
+        // otherwise fall back to the source document.
+        const umlDoc = document as UmlDiagramCustomDocument;
+        const source = umlDoc.restoredModelUri ?? umlDoc.sourceUri ?? document.uri;
+        try {
+            const content = await workspace.fs.readFile(source);
+            await workspace.fs.writeFile(context.destination, content);
+            umlDoc.backupUri = context.destination;
+        } catch (e) {
+            // If reading/writing fails, still return a backup id so VS Code can track it.
+        }
+
+        return {
+            id: context.destination.toString(),
+            delete: async () => {
+                try {
+                    await workspace.fs.delete(context.destination);
+                } catch {
+                    // Ignore cleanup errors
+                }
+            }
+        };
     }
 
     protected generateClientId(): string {
@@ -195,6 +225,18 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         } catch {
             // VS Code may provide a stale backupId on reload. Fall back to the actual source document.
             sourceContent = await workspace.fs.readFile(targetUri);
+        }
+        // If we already created a restore file for this source, reuse it (overwrite).
+        for (const [restoreUriString, storedSource] of this.restoreSourceUriByRestoreUri.entries()) {
+            try {
+                if (storedSource.toString() === sourceUri.toString()) {
+                    const existingRestore = Uri.parse(restoreUriString);
+                    await workspace.fs.writeFile(existingRestore, sourceContent);
+                    return existingRestore;
+                }
+            } catch {
+                // If overwrite/delete fails, ignore and continue to create a fresh file.
+            }
         }
         const sourceExt = path.extname(targetUri.fsPath);
         const sourceDir = path.dirname(targetUri.fsPath);
