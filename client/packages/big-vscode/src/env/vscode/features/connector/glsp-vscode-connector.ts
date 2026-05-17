@@ -180,17 +180,21 @@ export class BigGlspVSCodeConnector<
             throw new Error('Revert failed.');
         }
 
-        const sourceUri = ((document as any).sourceUri as vscode.Uri | undefined)?.toString() ?? document.uri.toString();
+        const documentUris = document as TDocument & {
+            restoredModelUri?: vscode.Uri;
+            sourceUri?: vscode.Uri;
+        };
+        const sourceUri = documentUris.restoredModelUri?.toString() ?? documentUris.sourceUri?.toString() ?? document.uri.toString();
 
-        this.dispatchAction(
+        this.sendActionToServer(
+            clientId,
             RequestModelAction.create({
                 options: {
                     sourceUri,
                     diagramType,
                     forceReloadFromDisk: true
                 }
-            }),
-            clientId
+            })
         );
     }
 

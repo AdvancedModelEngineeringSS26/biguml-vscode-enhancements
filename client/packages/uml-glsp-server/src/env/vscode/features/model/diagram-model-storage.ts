@@ -17,6 +17,7 @@
 import { type Diagram, isDiagram } from '@borkdominik-biguml/uml-model-server/grammar';
 import {
     ActionDispatcher,
+    CommandStack,
     type ClientSession,
     type ClientSessionListener,
     ClientSessionManager,
@@ -30,7 +31,11 @@ import {
 } from '@eclipse-glsp/server';
 import { inject, injectable, postConstruct } from 'inversify';
 import { findRootNode, streamReferences } from 'langium';
+import { readFile } from 'node:fs/promises';
+import type { Disposable } from 'vscode-languageserver';
+import { URI } from 'vscode-uri';
 import { DiagramModelState } from './diagram-model-state.js';
+import { ForceReloadFromDisk } from './reload-aware-computed-bounds-action-handler.js';
 
 @injectable()
 export class DiagramModelStorage implements SourceModelStorage, ClientSessionListener {
@@ -38,6 +43,9 @@ export class DiagramModelStorage implements SourceModelStorage, ClientSessionLis
     @inject(DiagramModelState) protected state: DiagramModelState;
     @inject(ClientSessionManager) protected sessionManager: ClientSessionManager;
     @inject(ActionDispatcher) protected actionDispatcher: ActionDispatcher;
+    @inject(CommandStack) protected commandStack: CommandStack;
+
+    protected modelUpdateListener?: Disposable;
 
     @postConstruct()
     protected init(): void {
@@ -47,13 +55,17 @@ export class DiagramModelStorage implements SourceModelStorage, ClientSessionLis
     async loadSourceModel(action: RequestModelAction): Promise<void> {
         // load semantic model from document in language model service
         const sourceUri = this.getSourceUri(action);
+        if (this.shouldForceReloadFromDisk(action)) {
+            await this.reloadFromDisk(sourceUri);
+        }
         const rootUri = sourceUri;
         const root = await this.state.modelService.request(rootUri, isDiagram, 'glsp');
         if (!root) {
             throw new GLSPServerError('Expected BigUML Diagram Root');
         }
         this.state.setSemanticRoot(rootUri, root);
-        this.state.modelService.onUpdate(this.state.semanticUri, this.state.clientId, async (newModel: Diagram) => {
+        this.modelUpdateListener?.dispose();
+        this.modelUpdateListener = this.state.modelService.onUpdate(this.state.semanticUri, this.state.clientId, async (newModel: Diagram) => {
             await this.state.replaceSemanticRoot(newModel);
         });
     }
@@ -72,7 +84,19 @@ export class DiagramModelStorage implements SourceModelStorage, ClientSessionLis
 
     sessionDisposed(_clientSession: ClientSession): void {
         // close loaded document for modification
+        this.modelUpdateListener?.dispose();
+        this.modelUpdateListener = undefined;
         this.state.modelService.close(this.state.semanticUri, 'glsp');
+    }
+
+    protected async reloadFromDisk(uri: string): Promise<void> {
+        this.commandStack.flush();
+        const content = await readFile(URI.parse(uri).fsPath, 'utf-8');
+        await this.state.modelService.update<Diagram>(uri, content, 'glsp');
+    }
+
+    protected shouldForceReloadFromDisk(action: RequestModelAction): boolean {
+        return action.options?.[ForceReloadFromDisk] === true;
     }
 
     protected getSourceUri(action: RequestModelAction): string {

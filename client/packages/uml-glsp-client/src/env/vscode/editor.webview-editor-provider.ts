@@ -160,19 +160,8 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
 
     override async revertCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Promise<void> {
         if (this.isUmlDiagramDocument(document) && document.restoredModelUri) {
-            // Delete the old restore file to clear any unsaved edits
-            try {
-                await workspace.fs.delete(document.restoredModelUri);
-            } catch {
-                // Restore file may already be deleted; ignore cleanup errors.
-            }
-            // Create a fresh restore file with current content from disk
-            const sourceUri = document.sourceUri ?? document.uri;
-            const newModelUri = await this.createRestoreModelUri(sourceUri, document.uri);
-            document.restoredModelUri = newModelUri;
-            this.restoreSourceUriByRestoreUri.set(newModelUri.toString(), sourceUri);
+            await this.restoreModelFromSource(document);
         }
-
         return this.connector.revertDocument(document, this.settings.diagramType);
     }
 
@@ -244,6 +233,16 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         const restoreUri = Uri.file(path.join(sourceDir, restoreFileName));
         await workspace.fs.writeFile(restoreUri, sourceContent);
         return restoreUri;
+    }
+
+    protected async restoreModelFromSource(document: UmlDiagramCustomDocument): Promise<void> {
+        const sourceUri = document.sourceUri ?? document.uri;
+        const restoreUri = document.restoredModelUri;
+        if (!restoreUri) {
+            return;
+        }
+        const sourceContent = await workspace.fs.readFile(sourceUri);
+        await workspace.fs.writeFile(restoreUri, sourceContent);
     }
 
     protected async prepareGLSPClient(document: CustomDocument, webviewPanel: WebviewPanel, modelUri: Uri): Promise<GlspVscodeClient> {

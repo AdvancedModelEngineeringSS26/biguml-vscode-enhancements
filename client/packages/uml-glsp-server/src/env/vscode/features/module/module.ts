@@ -9,6 +9,7 @@
 import {
     type ActionHandlerConstructor,
     type BindingTarget,
+    ComputedBoundsActionHandler,
     DiagramModule,
     type GModelIndex,
     type GModelSerializer,
@@ -25,6 +26,7 @@ import { DiagramModelState } from '../model/diagram-model-state.js';
 import { DiagramModelStorage } from '../model/diagram-model-storage.js';
 import { CreateNewFileActionHandler } from '../model/handler/create-new-file-action-handler.js';
 import { RequestSemanticModelActionHandler } from '../model/index.js';
+import { ReloadAwareComputedBoundsActionHandler } from '../model/reload-aware-computed-bounds-action-handler.js';
 import {
     GenericChangeBoundsOperationHandler,
     GenericCreateEdgeOperationHandler,
@@ -84,6 +86,7 @@ export abstract class BigDiagramModule extends DiagramModule {
 
     protected override configureActionHandlers(binding: InstanceMultiBinding<ActionHandlerConstructor>): void {
         super.configureActionHandlers(binding);
+        binding.rebind(ComputedBoundsActionHandler, ReloadAwareComputedBoundsActionHandler);
         binding.add(CreateNewFileActionHandler);
         binding.add(RequestSemanticModelActionHandler);
 
