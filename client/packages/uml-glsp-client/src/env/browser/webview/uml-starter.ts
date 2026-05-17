@@ -21,6 +21,7 @@ import {
     bindAsService,
     bindOrRebind
 } from '@eclipse-glsp/client';
+import { FocusStateChangedAction } from '@eclipse-glsp/client/lib/base/focus/focus-state-change-action.js';
 import { type MaybePromise } from '@eclipse-glsp/protocol';
 import { GLSPStarter } from '@eclipse-glsp/vscode-integration-webview';
 import '@eclipse-glsp/vscode-integration-webview/css/glsp-vscode.css';
@@ -59,6 +60,7 @@ class UmlStarter extends GLSPStarter {
 
         container.bind(ExtensionActionKind).toConstantValue(GLSPIsReadyAction.KIND);
         container.bind(ExtensionActionKind).toConstantValue(SemanticModelResponseAction.KIND);
+        container.bind(ExtensionActionKind).toConstantValue(FocusStateChangedAction.KIND);
         bindAsService(container, TYPES.IDiagramStartup, GLSPReadyStartup);
     }
 }

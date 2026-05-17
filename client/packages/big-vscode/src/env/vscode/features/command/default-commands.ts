@@ -8,6 +8,7 @@
  *********************************************************************************/
 import { TYPES, type BigGlspVSCodeConnector, type GlspDiagramSettings } from '@borkdominik-biguml/big-vscode/vscode';
 import { EnableToolsAction, FocusDomAction } from '@borkdominik-biguml/uml-glsp-server';
+import { FocusStateChangedAction } from '@eclipse-glsp/client/lib/base/focus/focus-state-change-action.js';
 import { CenterAction, FitToScreenAction, RequestExportSvgAction, SelectAllAction } from '@eclipse-glsp/protocol';
 import { inject, injectable, postConstruct } from 'inversify';
 import { SetUIExtensionVisibilityAction } from 'sprotty/lib/base/ui-extensions/ui-extension-registry.js';
@@ -24,9 +25,20 @@ export class DefaultCommandsProvider {
     @postConstruct()
     protected init(): void {
         let selectedElements: string[] = [];
+        const diagramFocusedContextKey = 'glspDiagramFocused';
+
+        void vscode.commands.executeCommand('setContext', diagramFocusedContextKey, false);
 
         this.extensionContext.subscriptions.push(
             this.connector.onSelectionUpdate(_selectedElements => (selectedElements = _selectedElements.selectedElementsIDs))
+        );
+
+        this.extensionContext.subscriptions.push(
+            this.connector.onClientActionMessage(message => {
+                if (FocusStateChangedAction.is(message.action)) {
+                    void vscode.commands.executeCommand('setContext', diagramFocusedContextKey, message.action.hasFocus);
+                }
+            })
         );
 
         this.extensionContext.subscriptions.push(
