@@ -40,6 +40,7 @@ import {
     type CustomDocumentEditEvent,
     type CustomDocumentOpenContext,
     type Event,
+    FileType,
     Uri,
     type Webview,
     type WebviewPanel,
@@ -97,14 +98,7 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             restoredModelUri: undefined,
             sourceUri,
             dispose: () => {
-                const restoreUri = customDocument.restoredModelUri;
-                if (restoreUri) {
-                    void Promise.resolve(workspace.fs.delete(restoreUri)).catch(() => {
-                        // Restore files are best-effort cleanup.
-                    });
-                    this.restoreSourceUriByRestoreUri.delete(restoreUri.toString());
-                }
-                this.restoreSourceUriByRestoreUri.delete(uri.toString());
+                void this.cleanupRestoreFile(customDocument);
             }
         } as UmlDiagramCustomDocument;
 
@@ -123,7 +117,6 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             document.restoredModelUri = modelUri;
             this.restoreSourceUriByRestoreUri.set(modelUri.toString(), sourceUri);
         }
-
         const client = await this.prepareGLSPClient(document, webviewPanel, modelUri);
         this.clients.set(document.uri.toString(), client);
         return super.resolveCustomEditor(document, webviewPanel, token);
@@ -229,6 +222,7 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         }
         const sourceExt = path.extname(targetUri.fsPath);
         const sourceDir = path.dirname(targetUri.fsPath);
+        await this.cleanupStaleRestoreFiles(sourceDir, sourceExt);
         const restoreFileName = `.biguml-restore-${randomUUID()}${sourceExt}`;
         const restoreUri = Uri.file(path.join(sourceDir, restoreFileName));
         await workspace.fs.writeFile(restoreUri, sourceContent);
@@ -243,6 +237,46 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         }
         const sourceContent = await workspace.fs.readFile(sourceUri);
         await workspace.fs.writeFile(restoreUri, sourceContent);
+    }
+
+    protected async cleanupRestoreFile(document: UmlDiagramCustomDocument): Promise<void> {
+        const restoreUri = document.restoredModelUri;
+        if (restoreUri) {
+            document.restoredModelUri = undefined;
+            this.restoreSourceUriByRestoreUri.delete(restoreUri.toString());
+            try {
+                await workspace.fs.delete(restoreUri);
+            } catch {
+                // Restore files are best-effort cleanup.
+            }
+        }
+        this.restoreSourceUriByRestoreUri.delete(document.uri.toString());
+    }
+
+    protected async cleanupStaleRestoreFiles(sourceDir: string, sourceExt: string): Promise<void> {
+        const activeRestoreUris = new Set(this.restoreSourceUriByRestoreUri.keys());
+        let entries: [string, FileType][];
+        try {
+            entries = await workspace.fs.readDirectory(Uri.file(sourceDir));
+        } catch {
+            return;
+        }
+
+        await Promise.all(
+            entries
+                .filter(([name, fileType]) => fileType === FileType.File && name.startsWith('.biguml-restore-') && path.extname(name) === sourceExt)
+                .map(async ([name]) => {
+                    const restoreUri = Uri.file(path.join(sourceDir, name));
+                    if (activeRestoreUris.has(restoreUri.toString())) {
+                        return;
+                    }
+                    try {
+                        await workspace.fs.delete(restoreUri);
+                    } catch {
+                        // Stale restore files are best-effort cleanup.
+                    }
+                })
+        );
     }
 
     protected async prepareGLSPClient(document: CustomDocument, webviewPanel: WebviewPanel, modelUri: Uri): Promise<GlspVscodeClient> {
@@ -265,6 +299,12 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             document,
             webviewEndpoint: endpoint as any as WebviewEndpoint
         };
+        const disposeRestoreFile = this.connector.onDidDispose(disposedClient => {
+            if (disposedClient === client && this.isUmlDiagramDocument(document)) {
+                disposeRestoreFile.dispose();
+                void this.cleanupRestoreFile(document);
+            }
+        });
 
         endpoint.onActionMessage(m => {
             if (GLSPIsReadyAction.is(m.action)) {
