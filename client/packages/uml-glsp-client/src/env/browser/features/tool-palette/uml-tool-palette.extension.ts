@@ -93,6 +93,11 @@ export class UmlToolPalette extends KeyboardToolPalette {
                 }
             });
         } else if (FocusDomAction.is(action) && action.id === ToolPalette.ID) {
+            if (this.containerElement.contains(document.activeElement)) {
+                this.toggleShortcutVisibility();
+            } else {
+                this.showShortcuts();
+            }
             this.containerElement.focus();
         } else {
             super.handle(action);
