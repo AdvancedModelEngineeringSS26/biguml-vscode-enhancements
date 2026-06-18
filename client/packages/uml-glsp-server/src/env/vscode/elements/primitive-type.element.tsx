@@ -31,7 +31,7 @@ export function GPrimitiveTypeNodeElement(props: GPrimitiveTypeNodeElementProps)
     const primNode = new GPrimitiveTypeNode();
     primNode.id = id;
     primNode.name = node.name;
-    primNode.cssClasses = ['uml-node'];
+    primNode.cssClasses = ['uml-node', 'uml-primitive-type-node'];
     primNode.children = [];
 
     if (position) {

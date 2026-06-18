@@ -34,7 +34,7 @@ export function GInstanceSpecificationNodeElement(props: GInstanceSpecificationN
     const instNode = new GInstanceSpecificationNode();
     instNode.id = id;
     instNode.name = node.name;
-    instNode.cssClasses = ['uml-node'];
+    instNode.cssClasses = ['uml-node', 'uml-instance-specification-node'];
     instNode.children = [];
 
     if (position) {

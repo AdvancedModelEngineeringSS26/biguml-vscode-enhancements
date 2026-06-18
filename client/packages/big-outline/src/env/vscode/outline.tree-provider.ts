@@ -13,14 +13,10 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
-import {
-    TYPES,
-    type ActionDispatcher,
-    type ActionListener,
-    type ConnectionManager,
-    type GlspModelState,
-    type SelectionService
-} from '@borkdominik-biguml/big-vscode/vscode';
+
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type { ActionDispatcher, ActionListener } from '@borkdominik-biguml/big-vscode-contribution/vscode';
+import { TYPES, type ConnectionManager, type GlspModelState, type SelectionService } from '@borkdominik-biguml/big-vscode/vscode';
 import { SelectAllAction } from '@eclipse-glsp/protocol';
 import { SelectAction } from '@eclipse-glsp/vscode-integration';
 import { inject, injectable, postConstruct } from 'inversify';
@@ -34,14 +30,18 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineTreeN
     @inject(OutlineViewId)
     protected readonly viewId: string;
 
-    @inject(TYPES.ActionDispatcher)
+    @inject(CONTRIBUTION_TYPES.ActionDispatcher)
     protected readonly actionDispatcher: ActionDispatcher;
-    @inject(TYPES.ActionListener)
+
+    @inject(CONTRIBUTION_TYPES.ActionListener)
     protected readonly actionListener: ActionListener;
+
     @inject(TYPES.ConnectionManager)
     protected readonly connectionManager: ConnectionManager;
+
     @inject(TYPES.SelectionService)
     protected readonly selectionService: SelectionService;
+
     @inject(TYPES.GlspModelState)
     protected readonly modelState: GlspModelState;
 
@@ -69,6 +69,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineTreeN
             canSelectMany: false,
             showCollapseAll: true
         });
+
         this.disposables.push(
             treeView,
             treeView.onDidChangeSelection(e => this.requestSelection(e.selection[0])),
@@ -112,7 +113,6 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineTreeN
 
     getChildren(element?: OutlineTreeNode | undefined): vscode.ProviderResult<OutlineTreeNode[]> {
         if (!element) {
-            // root elements are requested
             return this.storage.data;
         }
         return element.children;
@@ -124,16 +124,14 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineTreeN
 
     protected onNodesChanged(nodes: OutlineTreeNode[]): void {
         function recFlatMap(node: OutlineTreeNode): OutlineTreeNode[] {
-            return [node, ...node.children.flatMap(c => recFlatMap(c))];
+            return [node, ...node.children.flatMap(child => recFlatMap(child))];
         }
 
-        // The outline has changed. Update the tree view.
         this.storage = {
             data: nodes,
             flattened: nodes.flatMap(node => recFlatMap(node))
         };
         this.selectionToUpdateContext = {};
-        // Update root
         this.onDidChangeTreeDataEmitter.fire(undefined);
     }
 
@@ -154,6 +152,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineTreeN
         if (selection.isRoot || this.selectionToUpdateContext.selectedId === selectedId) {
             return;
         }
+
         this.selectionToUpdateContext = {
             selectedId
         };
@@ -180,10 +179,10 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineTreeN
             return;
         }
 
-        selection = selection.filter(s => s !== null && s !== undefined);
+        selection = selection.filter(selectedElementId => selectedElementId !== null && selectedElementId !== undefined);
         const selectedId = selection.at(-1);
 
-        if (selection.length === 0 || treeView.selection.some(s => s.semanticUri === selectedId)) {
+        if (selection.length === 0 || treeView.selection.some(node => node.semanticUri === selectedId)) {
             return;
         }
 

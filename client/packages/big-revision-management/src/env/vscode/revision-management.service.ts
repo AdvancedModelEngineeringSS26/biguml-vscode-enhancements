@@ -7,10 +7,14 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type {
+    ActionDispatcher as ContributionActionDispatcher,
+    ActionListener as ContributionActionListener
+} from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import { MinimapExportSvgAction, RequestMinimapExportSvgAction } from '@borkdominik-biguml/big-minimap';
 import {
     TYPES,
-    type BigGlspVSCodeConnector,
     type ConnectionManager,
     type GlspModelState,
     type GlspModelStateResource
@@ -22,8 +26,11 @@ import { type Snapshot } from '../common/snapshot.js';
 
 @injectable()
 export class RevisionManagementService {
-    @inject(TYPES.GlspVSCodeConnector)
-    protected readonly connector!: BigGlspVSCodeConnector;
+    @inject(CONTRIBUTION_TYPES.ActionDispatcher)
+    protected readonly actionDispatcher!: ContributionActionDispatcher;
+
+    @inject(CONTRIBUTION_TYPES.ActionListener)
+    protected readonly actionListener!: ContributionActionListener;
 
     @inject(TYPES.ConnectionManager)
     protected readonly connectionManager!: ConnectionManager;
@@ -81,9 +88,8 @@ export class RevisionManagementService {
         );
 
         this.toDispose.push(
-            this.connector.onClientActionMessage((message: any) => {
+            this.actionListener.onClient(MinimapExportSvgAction.KIND, message => {
                 if (MinimapExportSvgAction.is(message.action) && this.svgRequestId !== null) {
-                    // console.log('[RevisionManagementService] Received MinimapExportSvgAction message:', message);
                     const timelineEntry = this.timeline.find(s => s.id === this.svgRequestId);
                     if (timelineEntry) {
                         const { svg = '', bounds } = message.action;
@@ -92,7 +98,6 @@ export class RevisionManagementService {
                         this.svgRequestId = null;
                         this.updateTimeline();
                     }
-                    return { kind: 'noop' } as any;
                 }
             })
         );
@@ -202,7 +207,7 @@ export class RevisionManagementService {
     }
 
     requestExportSvg(): void {
-        this.connector.sendActionToActiveClient(RequestExportSvgAction.create());
+        this.actionDispatcher.dispatch(RequestExportSvgAction.create());
     }
 
     createSnapshot(message: string): void {
@@ -238,7 +243,7 @@ export class RevisionManagementService {
 
         this.svgRequestId = id;
         this.updateTimeline();
-        this.connector.sendActionToActiveClient(RequestMinimapExportSvgAction.create());
+        this.actionDispatcher.dispatch(RequestMinimapExportSvgAction.create());
     }
 
     private updateTimeline(): void {

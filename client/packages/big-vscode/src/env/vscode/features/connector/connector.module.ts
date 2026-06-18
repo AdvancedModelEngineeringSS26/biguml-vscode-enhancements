@@ -7,16 +7,20 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
 import { TYPES } from '../../vscode-common.types.js';
-import { bindLifecycle } from '../container/bindings.js';
 import { VscodeFeatureModule } from '../container/container.js';
 import { ConnectionManager } from './connection-manager.js';
-import { BigGlspVSCodeConnector } from './glsp-vscode-connector.js';
+import { BigVscodeMessagePropagationFilter } from './glsp-vscode-connector.js';
 import { SelectionService } from './selection-service.js';
 
 export const connectorModule = new VscodeFeatureModule(context => {
-    bindLifecycle(context, TYPES.GlspVSCodeConnector, BigGlspVSCodeConnector);
+    context.bind(CONTRIBUTION_TYPES.GlspVscodeServer).toDynamicValue(bindingContext => bindingContext.container.get(TYPES.GlspServer));
+    context.bind(CONTRIBUTION_TYPES.MessagePropagationFilter).to(BigVscodeMessagePropagationFilter).inSingletonScope();
+    context.bind(TYPES.OnDispose).toService(CONTRIBUTION_TYPES.VscodeConnector);
 
     context.bind(TYPES.ConnectionManager).to(ConnectionManager).inSingletonScope();
     context.bind(TYPES.SelectionService).to(SelectionService).inSingletonScope();
+    context.bind(TYPES.OnDispose).toService(TYPES.ConnectionManager);
+    context.bind(TYPES.OnDispose).toService(TYPES.SelectionService);
 });

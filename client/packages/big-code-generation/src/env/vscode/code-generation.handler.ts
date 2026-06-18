@@ -7,14 +7,8 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
-import {
-    TYPES,
-    type ActionDispatcher,
-    type ActionListener,
-    type GlspModelState,
-    type OnActivate,
-    type OnDispose
-} from '@borkdominik-biguml/big-vscode/vscode';
+import { ActionRequestHandlerRegistry } from '@borkdominik-biguml/big-vscode-contribution/vscode';
+import { TYPES, type GlspModelState, type OnActivate, type OnDispose } from '@borkdominik-biguml/big-vscode/vscode';
 import { DisposableCollection } from '@eclipse-glsp/protocol';
 import { Eta } from 'eta';
 import { readFileSync } from 'fs';
@@ -33,10 +27,8 @@ import type { CodeGenerationOptions, JavaCodeGenerationOptions, TypescriptCodeGe
 
 @injectable()
 export class CodeGenerationActionHandler implements OnActivate, OnDispose {
-    @inject(TYPES.ActionDispatcher)
-    protected readonly actionDispatcher: ActionDispatcher;
-    @inject(TYPES.ActionListener)
-    protected readonly actionListener: ActionListener;
+    @inject(ActionRequestHandlerRegistry)
+    protected readonly actionRequestHandlerRegistry: ActionRequestHandlerRegistry;
     @inject(TYPES.GlspModelState)
     protected readonly modelState: GlspModelState;
 
@@ -47,7 +39,7 @@ export class CodeGenerationActionHandler implements OnActivate, OnDispose {
 
     onActivate(): void {
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest<RequestCodeGenerationAction>(RequestCodeGenerationAction.KIND, async message => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest<RequestCodeGenerationAction>(RequestCodeGenerationAction.KIND, async message => {
                 const state = this.modelState.getModelState();
                 if (!state) {
                     return CodeGenerationActionResponse.create({ success: false, message: 'Model state is not available.' });
@@ -88,7 +80,7 @@ export class CodeGenerationActionHandler implements OnActivate, OnDispose {
         );
 
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest<RequestSelectSourceCodeFolderAction>(
+            this.actionRequestHandlerRegistry.handleVSCodeRequest<RequestSelectSourceCodeFolderAction>(
                 RequestSelectSourceCodeFolderAction.KIND,
                 async () => {
                     const folders = await vscode.window.showOpenDialog({
@@ -106,7 +98,7 @@ export class CodeGenerationActionHandler implements OnActivate, OnDispose {
         );
 
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest<RequestSelectTemplateFileAction>(RequestSelectTemplateFileAction.KIND, async () => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest<RequestSelectTemplateFileAction>(RequestSelectTemplateFileAction.KIND, async () => {
                 const files = await vscode.window.showOpenDialog({
                     canSelectFiles: true,
                     canSelectFolders: false,

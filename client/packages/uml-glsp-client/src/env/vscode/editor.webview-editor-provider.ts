@@ -6,33 +6,22 @@
  *
  * SPDX-License-Identifier: MIT
  *********************************************************************************/
-import { ReactHtmlProvider, TYPES, WebviewEditorProvider } from '@borkdominik-biguml/big-vscode/vscode';
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type {
+    ConnectorMessenger as ContributionConnectorMessenger,
+    DefaultWebviewEndpointFactory as ContributionWebviewEndpointFactory,
+    VscodeConnector
+} from '@borkdominik-biguml/big-vscode-contribution/vscode';
+import { ReactHtmlProvider, WebviewEditorProvider } from '@borkdominik-biguml/big-vscode/vscode';
+import { DisposableCollection, type GLSPDiagramIdentifier, type GlspVscodeClient } from '@eclipse-glsp/vscode-integration';
+import { inject, injectable } from 'inversify';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
-    ActionMessageNotification,
-    ClientStateChangeNotification,
-    Deferred,
-    DisposableCollection,
-    DisposeClientSessionRequest,
-    InitializeClientSessionRequest,
-    InitializeNotification,
-    InitializeServerRequest,
-    ShutdownServerNotification,
-    StartRequest,
-    StopRequest,
-    WebviewReadyNotification,
-    type ActionMessage,
-    type Disposable,
-    type GLSPClient,
-    type GLSPDiagramIdentifier,
-    type GlspVscodeClient,
-    type WebviewEndpoint,
-    type WebviewEndpointOptions
-} from '@eclipse-glsp/vscode-integration';
-import { inject, injectable } from 'inversify';
-import {
-    EventEmitter,
+    FileType,
+    RelativePattern,
+    Uri,
+    workspace,
     type CancellationToken,
     type CustomDocument,
     type CustomDocumentBackup,
@@ -40,17 +29,10 @@ import {
     type CustomDocumentEditEvent,
     type CustomDocumentOpenContext,
     type Event,
-    FileType,
-    Uri,
     type Webview,
     type WebviewPanel,
-    type WebviewView,
-    workspace
+    type WebviewView
 } from 'vscode';
-import { Messenger } from 'vscode-messenger';
-import type { MessageParticipant } from 'vscode-messenger-common';
-import { GLSPIsReadyAction } from '../common/actions/editor.actions.js';
-import type { ThemeIntegration } from './features/theme/theme-integration.js';
 
 export const UmlDiagramEditorSettings = Symbol('UmlDiagramEditorSettings');
 export interface UmlDiagramEditorSettings {
@@ -66,12 +48,18 @@ interface UmlDiagramCustomDocument extends CustomDocument {
 
 @injectable()
 export class UmlDiagramEditorProvider extends WebviewEditorProvider {
-    @inject(TYPES.Theme)
-    protected readonly themeIntegration: ThemeIntegration;
+    @inject(CONTRIBUTION_TYPES.WebviewEndpointFactory)
+    protected readonly webviewEndpointFactory: ContributionWebviewEndpointFactory;
+    @inject(CONTRIBUTION_TYPES.ConnectorMessenger)
+    protected readonly connectorMessenger: ContributionConnectorMessenger;
+    @inject(CONTRIBUTION_TYPES.VscodeConnector)
+    protected readonly connector: VscodeConnector;
 
     protected clients = new Map<string, GlspVscodeClient>();
     protected restoreSourceUriByRestoreUri = new Map<string, Uri>();
+    protected renderingPlugins = new Map<string, string[]>();
     protected viewCounter = 0;
+    protected customStyleLinks: string[] = [];
 
     constructor(@inject(UmlDiagramEditorSettings) protected readonly settings: UmlDiagramEditorSettings) {
         super({
@@ -119,7 +107,58 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         }
         const client = await this.prepareGLSPClient(document, webviewPanel, modelUri);
         this.clients.set(document.uri.toString(), client);
+        this.customStyleLinks = await this.collectCustomStyleLinks(document, webviewPanel.webview);
+        this.setupStylesheetWatcher(document, webviewPanel);
+        const pluginUris = await this.getRenderingPluginUris(document, webviewPanel.webview);
+        this.renderingPlugins.set(document.uri.toString(), pluginUris);
         return super.resolveCustomEditor(document, webviewPanel, token);
+    }
+
+    protected setupStylesheetWatcher(document: CustomDocument, webviewPanel: WebviewPanel): void {
+        const workspaceFolder = workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) {
+            return;
+        }
+
+        const watcher = workspace.createFileSystemWatcher(new RelativePattern(workspaceFolder, '.glsp/styles/*.css'));
+
+        const refresh = async (): Promise<void> => {
+            this.customStyleLinks = await this.collectCustomStyleLinks(document, webviewPanel.webview);
+            webviewPanel.webview.html = this.resolveHtml(webviewPanel.webview, document, Date.now());
+        };
+
+        const disposables = new DisposableCollection(
+            watcher,
+            watcher.onDidCreate(refresh),
+            watcher.onDidChange(refresh),
+            watcher.onDidDelete(refresh),
+            webviewPanel.onDidDispose(() => disposables.dispose())
+        );
+    }
+
+    protected override getLocalResourceRoots(document: CustomDocument): Uri[] {
+        const roots = super.getLocalResourceRoots(document);
+        const workspaceFolder = workspace.getWorkspaceFolder(document.uri);
+        if (workspaceFolder) {
+            roots.push(workspaceFolder.uri);
+        }
+        return roots;
+    }
+
+    protected async collectCustomStyleLinks(document: CustomDocument, webview: Webview): Promise<string[]> {
+        const workspaceFolder = workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) {
+            return [];
+        }
+        const stylesDir = Uri.joinPath(workspaceFolder.uri, '.glsp', 'styles');
+        try {
+            const entries = await workspace.fs.readDirectory(stylesDir);
+            return entries
+                .filter(([name, type]) => name.endsWith('.css') && type === FileType.File)
+                .map(([name]) => webview.asWebviewUri(Uri.joinPath(stylesDir, name)).toString());
+        } catch {
+            return [];
+        }
     }
 
     protected override resolveMessenger(webview: WebviewView | WebviewPanel): void {
@@ -132,12 +171,39 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
         );
     }
 
-    protected override resolveHtml(webview: Webview, context: CustomDocument): string {
+    protected override resolveHtml(webview: Webview, context: CustomDocument, cacheBust?: number): string {
         const clientId = this.clients.get(context.uri.toString())?.clientId ?? 'unknown';
-        return new ReactHtmlProvider({
+        let html = new ReactHtmlProvider({
             rootProvider: () => `<div id="${clientId}_container" style="height: 100%;"></div>`,
-            ...this.options.htmlOptions
+            ...this.options.htmlOptions,
+            customStyleLinks: this.customStyleLinks
         }).createHtml(this.extensionContext, webview);
+
+        if (cacheBust !== undefined) {
+            html = html.replace('</head>', `<!-- v=${cacheBust} -->\n</head>`);
+        }
+
+        const pluginBootstrap = `<script>window.__glspPlugins = window.__glspPlugins ?? [];</script>`;
+        const pluginScripts = (this.renderingPlugins.get(context.uri.toString()) ?? [])
+            .map(uri => `<script type="module" src="${uri}"></script>`)
+            .join('\n');
+
+        return html.replace('<body>', `<body>\n${pluginBootstrap}`).replace('</body>', `${pluginScripts}\n</body>`);
+    }
+
+    protected async getRenderingPluginUris(document: CustomDocument, webview: Webview): Promise<string[]> {
+        const workspaceFolder = workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) return [];
+
+        const renderingDir = Uri.joinPath(workspaceFolder.uri, '.glsp', 'rendering');
+        try {
+            const entries = await workspace.fs.readDirectory(renderingDir);
+            return entries
+                .filter(([name, fileType]) => name.endsWith('.js') && fileType === FileType.File)
+                .map(([name]) => `${webview.asWebviewUri(Uri.joinPath(renderingDir, name)).toString()}?v=${Date.now()}`);
+        } catch {
+            return [];
+        }
     }
 
     override saveCustomDocument(document: CustomDocument, _cancellation: CancellationToken): Thenable<void> {
@@ -172,7 +238,7 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             const content = await workspace.fs.readFile(source);
             await workspace.fs.writeFile(context.destination, content);
             umlDoc.backupUri = context.destination;
-        } catch (e) {
+        } catch {
             // If reading/writing fails, still return a backup id so VS Code can track it.
         }
 
@@ -287,9 +353,9 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             clientId
         };
 
-        const endpoint = new UmlWebviewEndpoint({
+        const endpoint = this.webviewEndpointFactory.create({
             diagramIdentifier,
-            messenger: this.connector.messenger,
+            messenger: this.connectorMessenger.messenger,
             webviewPanel
         });
 
@@ -297,7 +363,7 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             clientId: diagramIdentifier.clientId,
             diagramType: diagramIdentifier.diagramType,
             document,
-            webviewEndpoint: endpoint as any as WebviewEndpoint
+            webviewEndpoint: endpoint
         };
         const disposeRestoreFile = this.connector.onDidDispose(disposedClient => {
             if (disposedClient === client && this.isUmlDiagramDocument(document)) {
@@ -306,13 +372,7 @@ export class UmlDiagramEditorProvider extends WebviewEditorProvider {
             }
         });
 
-        endpoint.onActionMessage(m => {
-            if (GLSPIsReadyAction.is(m.action)) {
-                this.themeIntegration.updateTheme(client);
-            }
-        });
-
-        this.webviewMessenger.reuse(this.connector.messenger, endpoint.messageParticipant);
+        this.webviewMessenger.reuse(endpoint.messenger, endpoint.messageParticipant);
         await this.connector.registerClient(client);
         return client;
     }
@@ -326,147 +386,5 @@ export namespace EditorProvider {
             uriString = 'file:///' + match[1] + ':' + uriString.substring(match[0].length);
         }
         return uriString;
-    }
-}
-
-type PublicOf<T> = {
-    [K in keyof T]: T[K];
-};
-
-// Workaround as the WebviewEndpoint is not designed for webview reloads
-class UmlWebviewEndpoint implements PublicOf<WebviewEndpoint>, Disposable {
-    readonly webviewPanel: WebviewPanel;
-    readonly messenger: Messenger;
-    readonly messageParticipant: MessageParticipant;
-    readonly diagramIdentifier: GLSPDiagramIdentifier;
-
-    protected _readyDeferred = new Deferred<void>();
-    protected toDispose = new DisposableCollection();
-
-    protected onActionMessageEmitter = new EventEmitter<ActionMessage>();
-    get onActionMessage(): Event<ActionMessage> {
-        return this.onActionMessageEmitter.event;
-    }
-
-    protected _serverActions?: string[];
-    get serverActions(): string[] | undefined {
-        return this._serverActions;
-    }
-
-    protected _clientActions?: string[];
-    get clientActions(): string[] | undefined {
-        return this._clientActions;
-    }
-
-    constructor(options: WebviewEndpointOptions) {
-        this.webviewPanel = options.webviewPanel;
-        this.messenger = options.messenger ?? new Messenger();
-        this.diagramIdentifier = options.diagramIdentifier;
-        this.messageParticipant = this.messenger.registerWebviewPanel(this.webviewPanel);
-
-        this.toDispose.push(
-            this.webviewPanel.onDidDispose(() => {
-                this.dispose();
-            }),
-            this.messenger.onNotification(
-                WebviewReadyNotification,
-                () => {
-                    // When the webview is reloaded, it will send the WebviewReadyNotification again.
-                    // In this case, we need to resend the diagram identifier to re-initialize the webview.
-                    if (this._readyDeferred.state === 'resolved') {
-                        this.sendDiagramIdentifier();
-                    } else {
-                        this._readyDeferred.resolve();
-                    }
-                },
-                {
-                    sender: this.messageParticipant
-                }
-            ),
-            this.onActionMessageEmitter
-        );
-    }
-
-    protected async sendDiagramIdentifier(): Promise<void> {
-        await this.ready;
-        if (this.diagramIdentifier) {
-            this.messenger.sendNotification(InitializeNotification, this.messageParticipant, this.diagramIdentifier);
-        }
-    }
-
-    /**
-     * Hooks up a {@link GLSPClient} with the underlying webview and send the `initialize` message to the webview
-     * (once its ready)
-     * The GLSP client is called remotely from the webview context via the `vscode-messenger` RPC
-     * protocol.
-     * @param glspClient The client that should be connected
-     * @returns A {@link Disposable} to dispose the remote connection and all attached listeners
-     */
-    initialize(glspClient: GLSPClient): Disposable {
-        const toDispose = new DisposableCollection();
-        toDispose.push(
-            this.messenger.onNotification(
-                ActionMessageNotification,
-                msg => {
-                    this.onActionMessageEmitter.fire(msg);
-                },
-                {
-                    sender: this.messageParticipant
-                }
-            ),
-            this.messenger.onRequest(StartRequest, () => glspClient.start(), { sender: this.messageParticipant }),
-            this.messenger.onRequest(
-                InitializeServerRequest,
-                async params => {
-                    const result = await glspClient.initializeServer(params);
-                    if (!this._serverActions) {
-                        this._serverActions = result.serverActions[this.diagramIdentifier.diagramType];
-                    }
-                    return result;
-                },
-                {
-                    sender: this.messageParticipant
-                }
-            ),
-            this.messenger.onRequest(
-                InitializeClientSessionRequest,
-                params => {
-                    if (!this._clientActions) {
-                        this._clientActions = params.clientActionKinds;
-                    }
-                    glspClient.initializeClientSession(params);
-                },
-                {
-                    sender: this.messageParticipant
-                }
-            ),
-            this.messenger.onRequest(DisposeClientSessionRequest, params => glspClient.disposeClientSession(params), {
-                sender: this.messageParticipant
-            }),
-            this.messenger.onRequest(ShutdownServerNotification, () => glspClient.shutdownServer(), {
-                sender: this.messageParticipant
-            }),
-            this.messenger.onRequest(StopRequest, () => glspClient.stop(), {
-                sender: this.messageParticipant
-            }),
-            glspClient.onCurrentStateChanged(state =>
-                this.messenger.sendNotification(ClientStateChangeNotification, this.messageParticipant, state)
-            )
-        );
-        this.toDispose.push(toDispose);
-        this.sendDiagramIdentifier();
-        return toDispose;
-    }
-
-    sendMessage(actionMessage: ActionMessage): void {
-        this.messenger.sendNotification(ActionMessageNotification, this.messageParticipant, actionMessage);
-    }
-
-    get ready(): Promise<void> {
-        return this._readyDeferred.promise;
-    }
-
-    dispose(): void {
-        this.toDispose.dispose();
     }
 }

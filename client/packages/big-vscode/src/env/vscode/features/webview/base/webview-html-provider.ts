@@ -19,6 +19,7 @@ export interface WebviewHtmlProviderOptions {
         js: string[][];
         css: string[][];
     };
+    customStyleLinks?: string[];
 }
 
 export class ReactHtmlProvider implements WebviewHtmlProvider {
@@ -38,6 +39,10 @@ export class ReactHtmlProvider implements WebviewHtmlProvider {
             })
             .join('\n            ');
 
+        const customStyleLinks = (this.options.customStyleLinks ?? [])
+            .map(href => `<link href="${href}" rel="stylesheet" type="text/css" />`)
+            .join('\n            ');
+
         const jsScripts = js
             .map(path => {
                 const uri = getBundleUri(webview, extensionUri, path);
@@ -50,11 +55,12 @@ export class ReactHtmlProvider implements WebviewHtmlProvider {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="Content-Security-Policy" 
+            <meta http-equiv="Content-Security-Policy"
                 content="default-src http://*.fontawesome.com  ${webview.cspSource} data: 'unsafe-inline' 'unsafe-eval';">
             <link id="vscode-codicon-stylesheet" href="${codiconsCSSUri}" rel="stylesheet" type="text/css" />
             <link href="${mainCSSUri}" rel="stylesheet" type="text/css" />
             ${cssLinks}
+            ${customStyleLinks}
             <title>Webview</title>
         </head>
         <body>

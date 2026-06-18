@@ -7,103 +7,80 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
-import {
-    type Action,
-    type ActionMessage,
-    Deferred,
-    type Disposable,
-    DisposableCollection,
-    RequestAction,
-    ResponseAction
-} from '@eclipse-glsp/vscode-integration';
-import { inject, injectable, postConstruct, preDestroy } from 'inversify';
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type {
+    ActionDispatcher as ContributionActionDispatcher,
+    ClientManager as ContributionClientManager
+} from '@borkdominik-biguml/big-vscode-contribution/vscode';
+import { type Action, type ActionMessage, type Disposable, RequestAction, type ResponseAction } from '@eclipse-glsp/vscode-integration';
+import { inject, injectable } from 'inversify';
 import { VscodeAction } from '../../../common/vscode.action.js';
-import { TYPES } from '../../vscode-common.types.js';
-import type { BigGlspVSCodeConnector } from '../connector/glsp-vscode-connector.js';
 
 /**
- * Dispatches actions to the GLSP client/server and handles responses.
- * It is a wrapper around the GLSP connector to simplify the action dispatching process.
+ * Compatibility wrapper over the contribution action dispatcher.
+ *
+ * @deprecated Inject contribution `ActionDispatcher` from
+ * `@borkdominik-biguml/big-vscode-contribution/vscode` for new code.
+ *
+ * See `client/docs/feature1/compatibility-layer.md`.
  */
 @injectable()
 export class ActionDispatcher implements Disposable {
-    @inject(TYPES.GlspVSCodeConnector)
-    protected readonly connector: BigGlspVSCodeConnector;
-
-    protected readonly requests: Map<string, Deferred<ActionMessage>> = new Map();
-    protected toDispose = new DisposableCollection();
-
-    @postConstruct()
-    protected init(): void {
-        this.toDispose.push(
-            this.connector.onClientActionMessage(message => {
-                this.onActionMessage(message);
-            }),
-            this.connector.onServerActionMessage(message => {
-                this.onActionMessage(message);
-            })
-        );
-    }
-
-    protected onActionMessage(message: ActionMessage): void {
-        if (ResponseAction.is(message.action)) {
-            const deferred = this.requests.get(message.action.responseId);
-            if (deferred) {
-                this.requests.delete(message.action.responseId);
-                deferred.resolve(message);
-            }
-        }
-    }
-
-    @preDestroy()
-    dispose(): void {
-        this.toDispose.dispose();
-    }
+    @inject(CONTRIBUTION_TYPES.ActionDispatcher)
+    protected readonly contributionActionDispatcher: ContributionActionDispatcher;
+    @inject(CONTRIBUTION_TYPES.ClientManager)
+    protected readonly clientManager: ContributionClientManager;
 
     /**
      * Dispatches a request action to the GLSP client (server) and returns a promise that resolves with the response action.
+     *
+     * @deprecated Use contribution `ActionDispatcher.request(action, clientId?)`.
      */
     request<Res extends ResponseAction>(action: RequestAction<Res>): Promise<ActionMessage<Res>> {
         if (!action.requestId || action.requestId === '') {
             action.requestId = RequestAction.generateRequestId();
         }
         action.requestId = VscodeAction.prefixRequestId(action.requestId);
-        const deferred = new Deferred<ActionMessage<Res>>();
-        this.requests.set(action.requestId, deferred as any);
-        this.dispatch(action);
-        return deferred.promise;
+        return this.contributionActionDispatcher.request(action);
     }
 
     /**
      * Dispatches an action to the GLSP client (server).
      * This method will not wait for a response.
+     *
+     * @deprecated Use contribution `ActionDispatcher.dispatch(action, clientId?)`.
      */
     dispatch(action: Action | Action[]): void {
-        this.dispatchToClient(undefined, action);
+        this.contributionActionDispatcher.dispatch(action);
     }
 
     /**
      * Dispatches an action to a specific GLSP client (server).
      * This method will not wait for a response.
+     *
+     * @deprecated Use contribution `ActionDispatcher.dispatch(action, clientId)`.
      */
     dispatchToClient(clientId: string | undefined, action: Action | Action[]): void {
-        if (Array.isArray(action)) {
-            action.forEach(a => this.connector.dispatchAction(a, clientId));
-        } else {
-            this.connector.dispatchAction(action, clientId);
-        }
+        this.contributionActionDispatcher.dispatchToClient(action, clientId);
     }
 
     /**
      * Broadcasts an action to all GLSP clients (server).
      * This method will not wait for a response.
+     *
+     * @deprecated Use contribution `ClientManager.clients` and dispatch or send
+     * messages explicitly for each target client.
      */
     broadcast(action: Action): void {
-        this.connector.clients.forEach(client => {
+        this.clientManager.clients.forEach(client => {
             client.webviewEndpoint.sendMessage({
                 clientId: client.clientId,
                 action: action
             });
         });
+    }
+
+    dispose(): void {
+        // Delegated state is owned by the contribution action dispatcher.
     }
 }

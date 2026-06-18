@@ -7,6 +7,8 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type { ActionDispatcher, ActionListener } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import { RequestSemanticModelAction, type SemanticModelResource } from '@borkdominik-biguml/uml-glsp-server';
 import type { SourceAstNode } from '@borkdominik-biguml/uml-model-server';
 import type { Diagram } from '@borkdominik-biguml/uml-model-server/grammar';
@@ -14,8 +16,6 @@ import { DisposableCollection, UpdateModelAction, type Disposable } from '@eclip
 import { inject, injectable, postConstruct, preDestroy } from 'inversify';
 import * as vscode from 'vscode';
 import { TYPES } from '../../vscode-common.types.js';
-import type { ActionDispatcher } from '../action/action-dispatcher.js';
-import type { ActionListener } from '../action/action-listener.js';
 import type { ConnectionManager } from '../connector/connection-manager.js';
 
 export interface ModelStateChangeEvent {
@@ -53,10 +53,12 @@ export class GlspModelStateResource {
  */
 @injectable()
 export class GlspModelState implements Disposable {
-    @inject(TYPES.ActionDispatcher)
+    @inject(CONTRIBUTION_TYPES.ActionDispatcher)
     protected readonly actionDispatcher: ActionDispatcher;
-    @inject(TYPES.ActionListener)
+
+    @inject(CONTRIBUTION_TYPES.ActionListener)
     protected readonly actionListener: ActionListener;
+
     @inject(TYPES.ConnectionManager)
     protected readonly connectionManager: ConnectionManager;
 

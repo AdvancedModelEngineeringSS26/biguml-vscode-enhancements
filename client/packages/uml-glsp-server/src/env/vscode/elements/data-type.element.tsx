@@ -34,7 +34,7 @@ export function GDataTypeNodeElement(props: GDataTypeNodeElementProps): GModelEl
     const dataTypeNode = new GDataTypeNode();
     dataTypeNode.id = id;
     dataTypeNode.name = node.name;
-    dataTypeNode.cssClasses = ['uml-node'];
+    dataTypeNode.cssClasses = ['uml-node', 'uml-data-type-node'];
     dataTypeNode.children = [];
 
     if (position) {

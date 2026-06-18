@@ -6,15 +6,9 @@
  *
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
+import type { CacheActionListener } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import type { WebviewMessenger, WebviewViewProviderOptions } from '@borkdominik-biguml/big-vscode/vscode';
-import {
-    type ActionDispatcher,
-    type CacheActionListener,
-    type ConnectionManager,
-    type GlspModelState,
-    TYPES,
-    WebviewViewProvider
-} from '@borkdominik-biguml/big-vscode/vscode';
+import { type ConnectionManager, type GlspModelState, TYPES, WebviewViewProvider } from '@borkdominik-biguml/big-vscode/vscode';
 import { InitializeCanvasBoundsAction } from '@borkdominik-biguml/uml-glsp-server';
 import { SetViewportAction } from '@eclipse-glsp/protocol';
 import { DisposableCollection } from '@eclipse-glsp/vscode-integration';
@@ -29,9 +23,6 @@ export class MinimapWebviewViewProvider extends WebviewViewProvider {
 
     @inject(TYPES.GlspModelState)
     protected readonly modelState: GlspModelState;
-
-    @inject(TYPES.ActionDispatcher)
-    protected readonly actionDispatcher: ActionDispatcher;
 
     protected actionCache: CacheActionListener;
 

@@ -32,6 +32,20 @@ import { SDShiftMouseTool } from '../../uml/diagram/sequence/features/tools/shif
 const CLICKED_CSS_CLASS = 'clicked';
 const CHEVRON_DOWN_ICON_ID = 'chevron-right';
 const PALETTE_ICON_ID = 'symbol-color';
+const COLOR_STORAGE_KEY = 'uml-palette-colors';
+const COLOR_STYLE_ID = 'uml-palette-colors';
+
+const COLORABLE_ELEMENT_TYPES: { label: string; cssClass: string }[] = [
+    { label: 'Class', cssClass: 'uml-class-node' },
+    { label: 'Abstract Class', cssClass: 'uml-abstract-class-node' },
+    { label: 'Interface', cssClass: 'uml-interface-node' },
+    { label: 'Enumeration', cssClass: 'uml-enumeration-node' },
+    { label: 'Data Type', cssClass: 'uml-data-type-node' },
+    { label: 'Primitive Type', cssClass: 'uml-primitive-type-node' },
+    { label: 'Package', cssClass: 'uml-package-node' },
+    { label: 'Instance Spec.', cssClass: 'uml-instance-specification-node' }
+];
+
 const AVAILABLE_KEYS: KeyCode[] = [
     'KeyA',
     'KeyB',
@@ -70,6 +84,7 @@ const SEARCH_TOOL_KEY: KeyCode[] = ['Digit5', 'Numpad5'];
 @injectable()
 export class UmlToolPalette extends KeyboardToolPalette {
     declare defaultToolsButton: HTMLElement;
+    protected colorPanel?: HTMLElement;
 
     protected override onBeforeShow(_containerElement: HTMLElement, root: Readonly<GModelRoot>): void {
         // Removed max height
@@ -148,7 +163,166 @@ export class UmlToolPalette extends KeyboardToolPalette {
         const createShiftButton = this.createShiftButton();
         headerTools.appendChild(createShiftButton);
 
+        const colorButton = this.createColorPickerButton();
+        headerTools.appendChild(colorButton);
+
         return headerTools;
+    }
+
+    protected createColorPickerButton(): HTMLElement {
+        const button = createIcon(PALETTE_ICON_ID);
+        button.title = 'Element colors (click to open color picker)';
+        button.style.cssText = 'cursor:pointer; outline: 1px solid currentColor; border-radius:2px; padding:1px';
+
+        const panel = this.getOrCreateColorPanel();
+
+        button.onclick = event => {
+            event.stopPropagation();
+            if (panel.style.display === 'none') {
+                const rect = button.getBoundingClientRect();
+                // Show first so we can measure the panel width, then clamp to viewport
+                panel.style.top = `${rect.bottom + 4}px`;
+                panel.style.left = '0px';
+                panel.style.display = 'block';
+                const panelWidth = panel.offsetWidth;
+                const left = Math.min(rect.left, window.innerWidth - panelWidth - 8);
+                panel.style.left = `${Math.max(8, left)}px`;
+            } else {
+                panel.style.display = 'none';
+            }
+        };
+
+        return button;
+    }
+
+    protected getOrCreateColorPanel(): HTMLElement {
+        if (!this.colorPanel) {
+            this.colorPanel = this.createColorPanel();
+            document.body.appendChild(this.colorPanel);
+            document.addEventListener('click', () => {
+                this.colorPanel!.style.display = 'none';
+            });
+        }
+        return this.colorPanel;
+    }
+
+    protected createColorPanel(): HTMLElement {
+        const savedColors: Record<string, string> = this.loadSavedColors();
+
+        const panel = document.createElement('div');
+        panel.style.cssText = [
+            'position: fixed',
+            'z-index: 10000',
+            'display: none',
+            'background: var(--vscode-editor-background, #1e1e1e)',
+            'border: 1px solid var(--vscode-panel-border, #444)',
+            'border-radius: 4px',
+            'padding: 8px',
+            'min-width: 220px',
+            'box-shadow: 0 4px 12px rgba(0,0,0,0.4)',
+            'font-size: 12px',
+            'color: var(--vscode-editor-foreground, #ccc)'
+        ].join('; ');
+        panel.onclick = e => e.stopPropagation();
+
+        const title = document.createElement('div');
+        title.textContent = 'Element Colors';
+        title.style.cssText = 'font-weight: bold; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--vscode-panel-border, #444)';
+        panel.appendChild(title);
+
+        for (const { label, cssClass } of COLORABLE_ELEMENT_TYPES) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin: 4px 0; gap: 8px';
+
+            const labelEl = document.createElement('span');
+            labelEl.textContent = label;
+            labelEl.style.flex = '1';
+
+            const colorInput = document.createElement('input');
+            colorInput.type = 'color';
+            colorInput.value = savedColors[cssClass] ?? '#eaf0f8';
+            colorInput.style.cssText = 'width: 36px; height: 20px; border: none; cursor: pointer; padding: 0; background: none';
+            colorInput.title = `Color for ${label}`;
+
+            colorInput.addEventListener('input', () => {
+                const colors = this.loadSavedColors();
+                colors[cssClass] = colorInput.value;
+                this.saveColors(colors);
+                this.applyColors(colors);
+            });
+
+            const resetBtn = document.createElement('span');
+            resetBtn.textContent = '↺';
+            resetBtn.title = `Reset ${label} color`;
+            resetBtn.style.cssText = 'cursor: pointer; opacity: 0.6; font-size: 14px; user-select: none';
+            resetBtn.onclick = () => {
+                const colors = this.loadSavedColors();
+                delete colors[cssClass];
+                colorInput.value = '#eaf0f8';
+                this.saveColors(colors);
+                this.applyColors(colors);
+            };
+
+            row.appendChild(labelEl);
+            row.appendChild(colorInput);
+            row.appendChild(resetBtn);
+            panel.appendChild(row);
+        }
+
+        const resetAllRow = document.createElement('div');
+        resetAllRow.style.cssText = 'margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--vscode-panel-border, #444); text-align: center';
+        const resetAllBtn = document.createElement('button');
+        resetAllBtn.textContent = 'Reset All Colors';
+        resetAllBtn.style.cssText = [
+            'background: var(--vscode-button-secondaryBackground, #3a3d41)',
+            'color: var(--vscode-button-secondaryForeground, #ccc)',
+            'border: none',
+            'padding: 3px 10px',
+            'border-radius: 3px',
+            'cursor: pointer',
+            'font-size: 11px'
+        ].join('; ');
+        resetAllBtn.onclick = () => {
+            this.saveColors({});
+            this.applyColors({});
+            panel.querySelectorAll('input[type=color]').forEach(el => {
+                (el as HTMLInputElement).value = '#eaf0f8';
+            });
+        };
+        resetAllRow.appendChild(resetAllBtn);
+        panel.appendChild(resetAllRow);
+
+        return panel;
+    }
+
+    private loadSavedColors(): Record<string, string> {
+        try {
+            const saved = localStorage.getItem(COLOR_STORAGE_KEY);
+            return saved ? JSON.parse(saved) : {};
+        } catch {
+            return {};
+        }
+    }
+
+    private saveColors(colors: Record<string, string>): void {
+        localStorage.setItem(COLOR_STORAGE_KEY, JSON.stringify(colors));
+    }
+
+    private applyColors(colors: Record<string, string>): void {
+        // Always remove and re-append so our style is the last in <head>,
+        // guaranteeing it wins over any custom .glsp/styles/ stylesheets.
+        const existing = document.getElementById(COLOR_STYLE_ID);
+        if (existing) existing.remove();
+
+        if (Object.keys(colors).length === 0) return;
+
+        const style = document.createElement('style');
+        style.id = COLOR_STYLE_ID;
+        // !important so palette colors override custom CSS with equal specificity
+        style.textContent = Object.entries(colors)
+            .map(([cssClass, color]) => `.${cssClass} { fill: ${color} !important; }`)
+            .join('\n');
+        document.head.appendChild(style);
     }
 
     protected override createDefaultToolButton(): HTMLElement {
@@ -289,5 +463,6 @@ export class UmlToolPalette extends KeyboardToolPalette {
         if (!this.editorContext.isReadonly) {
             this.show(this.editorContext.modelRoot);
         }
+        this.applyColors(this.loadSavedColors());
     }
 }

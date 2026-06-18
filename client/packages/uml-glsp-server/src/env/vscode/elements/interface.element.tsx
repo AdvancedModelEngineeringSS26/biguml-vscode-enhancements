@@ -36,7 +36,7 @@ export function GInterfaceNodeElement(props: GInterfaceNodeElementProps): GModel
     interfaceNode.id = id;
     interfaceNode.name = node.name;
     interfaceNode.isAbstract = false;
-    interfaceNode.cssClasses = ['uml-node'];
+    interfaceNode.cssClasses = ['uml-node', 'uml-interface-node'];
     interfaceNode.children = [];
 
     if (position) {

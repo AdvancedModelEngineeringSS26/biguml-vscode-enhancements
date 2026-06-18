@@ -7,11 +7,11 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type { ClientManager } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import { Deferred, type Disposable, DisposableCollection, type GlspVscodeClient } from '@eclipse-glsp/vscode-integration';
 import { inject, injectable, postConstruct, preDestroy } from 'inversify';
 import * as vscode from 'vscode';
-import { TYPES } from '../../vscode-common.types.js';
-import type { BigGlspVSCodeConnector } from './glsp-vscode-connector.js';
 
 /**
  * Event emitted when the view state of a webview panel changes.
@@ -25,12 +25,15 @@ export interface ViewStateChangeEvent extends vscode.WebviewPanelOnDidChangeView
 
 /**
  * A manager for handling connections to GLSP clients in VS Code.
- * It is a wrapper around the GLSP connector to maintain all registered GLSP clients.
+ * It is a compatibility facade over the contribution-native client manager and
+ * retained event model. New connector/runtime code should prefer contribution
+ * `ClientManager` directly. This class remains supported for frozen first-party
+ * packages that resolve `TYPES.ConnectionManager`.
  */
 @injectable()
 export class ConnectionManager implements Disposable {
-    @inject(TYPES.GlspVSCodeConnector)
-    protected readonly connector: BigGlspVSCodeConnector;
+    @inject(CONTRIBUTION_TYPES.ClientManager)
+    protected readonly clientManager: ClientManager;
 
     protected readonly onDidActiveClientChangeEmitter = new vscode.EventEmitter<GlspVscodeClient>();
     /**
@@ -74,11 +77,11 @@ export class ConnectionManager implements Disposable {
      * The active client is the one whose webview panel is currently active/focus.
      */
     get activeClient(): GlspVscodeClient | undefined {
-        return this.connector.activeClient;
+        return this.clientManager.activeClient;
     }
 
     hasActiveClient(): boolean {
-        return this.connector.clients.some(client => client.webviewEndpoint.webviewPanel.active);
+        return this.clientManager.clients.some(client => client.webviewEndpoint.webviewPanel.active);
     }
 
     hasNoActiveClient(): boolean {
@@ -86,7 +89,7 @@ export class ConnectionManager implements Disposable {
     }
 
     hasAnyClient(): boolean {
-        return this.connector.clients.length > 0;
+        return this.clientManager.clients.length > 0;
     }
 
     hasNoClient(): boolean {
@@ -96,10 +99,12 @@ export class ConnectionManager implements Disposable {
     @postConstruct()
     protected init(): void {
         this.toDispose.push(
-            this.connector.onDidRegister(client => {
+            this.clientManager.onDidRegister(client => {
                 this.toDispose.push(this.registerClient(client));
             }),
-            this.onDidDispose(() => {
+            this.clientManager.onDidDispose(client => {
+                this.onDidDisposeEmitter.fire(client);
+
                 if (this.hasNoClient()) {
                     this.onNoConnectionEmitter.fire();
                 } else if (this.hasNoActiveClient()) {
@@ -116,7 +121,7 @@ export class ConnectionManager implements Disposable {
 
     /**
      * Registers a GLSP client and sets up event listeners for its webview panel.
-     * This method is called when a new client is registered with the connector.
+     * This method is called when a new client is registered with the client manager.
      */
     registerClient(client: GlspVscodeClient): Disposable {
         const toDispose = new DisposableCollection();
@@ -150,9 +155,6 @@ export class ConnectionManager implements Disposable {
                 if (this.hasNoActiveClient()) {
                     this.onNoActiveClientEmitter.fire();
                 }
-            }),
-            client.webviewEndpoint.webviewPanel.onDidDispose(async () => {
-                this.onDidDisposeEmitter.fire(client);
             })
         );
 

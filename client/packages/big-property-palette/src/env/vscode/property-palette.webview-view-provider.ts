@@ -11,10 +11,9 @@ import {
     SetNavigationIdNotification,
     SetPropertyPaletteAction
 } from '@borkdominik-biguml/big-property-palette';
+import type { CacheActionListener } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import type { WebviewMessenger, WebviewViewProviderOptions } from '@borkdominik-biguml/big-vscode/vscode';
 import {
-    type ActionDispatcher,
-    type CacheActionListener,
     type ConnectionManager,
     type GlspModelState,
     type SelectionService,
@@ -32,9 +31,6 @@ export class PropertyPaletteWebviewViewProvider extends WebviewViewProvider {
 
     @inject(TYPES.GlspModelState)
     protected readonly modelState: GlspModelState;
-
-    @inject(TYPES.ActionDispatcher)
-    protected readonly actionDispatcher: ActionDispatcher;
 
     @inject(TYPES.SelectionService)
     protected readonly selectionService: SelectionService;
@@ -63,28 +59,35 @@ export class PropertyPaletteWebviewViewProvider extends WebviewViewProvider {
 
     protected override resolveWebviewProtocol(messenger: WebviewMessenger): Disposable {
         const disposables = new DisposableCollection();
+
         disposables.push(
             super.resolveWebviewProtocol(messenger),
             this.actionCache.onDidChange(message => this.actionMessenger.dispatch(message)),
+
             messenger.onNotification(SetNavigationIdNotification, id => {
                 this.selectedId = id ?? this.selectionService.selection?.selectedElementsIDs[0];
             }),
+
             this.selectionService.onDidSelectionChange(event => {
                 this.selectedId = event.state.selectedElementsIDs[0];
                 this.requestPropertyPalette();
             }),
+
             this.connectionManager.onNoConnection(() => {
                 this.actionMessenger.dispatch(SetPropertyPaletteAction.create());
             }),
+
             this.modelState.onDidChangeModelState(() => {
                 this.requestPropertyPalette();
             })
         );
+
         return disposables;
     }
 
     protected override handleOnReady(): void {
         const selection = this.selectionService.selection;
+
         if (selection && selection.selectedElementsIDs.length > 0) {
             this.selectedId = selection.selectedElementsIDs[0];
             this.requestPropertyPalette();

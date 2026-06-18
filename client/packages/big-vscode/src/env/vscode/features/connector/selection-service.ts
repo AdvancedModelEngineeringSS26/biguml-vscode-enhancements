@@ -7,12 +7,13 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type { SelectionTracker as ContributionSelectionTracker } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import { DisposableCollection, type Disposable, type SelectionState } from '@eclipse-glsp/vscode-integration';
 import { inject, injectable, postConstruct, preDestroy } from 'inversify';
 import * as vscode from 'vscode';
 import { TYPES } from '../../vscode-common.types.js';
 import type { ConnectionManager } from './connection-manager.js';
-import type { BigGlspVSCodeConnector } from './glsp-vscode-connector.js';
 
 /**
  * SelectionMessage is used to communicate selection changes for GLSP clients.
@@ -25,14 +26,16 @@ export interface SelectionMessage {
 /**
  * SelectionService is responsible for managing selection states of GLSP clients.
  * It listens to selection updates and view state changes to keep track of the current selection.
- * It is a wrapper around the GLSP connector to simplify the selection process.
+ * It is a compatibility facade over contribution `SelectionTracker` and remains
+ * supported for frozen first-party packages that resolve `TYPES.SelectionService`.
+ * New connector/runtime code should prefer contribution `SelectionTracker`.
  */
 @injectable()
 export class SelectionService implements Disposable {
-    @inject(TYPES.GlspVSCodeConnector)
-    protected readonly connector: BigGlspVSCodeConnector;
     @inject(TYPES.ConnectionManager)
     protected readonly connectionManager: ConnectionManager;
+    @inject(CONTRIBUTION_TYPES.SelectionTracker)
+    protected readonly selectionTracker: ContributionSelectionTracker;
 
     protected readonly onDidSelectionChangeEmitter = new vscode.EventEmitter<SelectionMessage>();
     /**
@@ -42,7 +45,6 @@ export class SelectionService implements Disposable {
     readonly onDidSelectionChange = this.onDidSelectionChangeEmitter.event;
 
     protected readonly toDispose = new DisposableCollection();
-    protected readonly selectionMap = new Map<string, SelectionState>();
 
     /**
      * Returns the current selection state of the active client.
@@ -52,14 +54,14 @@ export class SelectionService implements Disposable {
         if (!clientId) {
             return undefined;
         }
-        return this.selectionMap.get(clientId);
+        return this.selectionTracker.getSelection(clientId) as SelectionState | undefined;
     }
 
     /**
      * Returns the selection state of a specific client.
      */
     getSelection(clientId: string): SelectionState | undefined {
-        return this.selectionMap.get(clientId);
+        return this.selectionTracker.getSelection(clientId) as SelectionState | undefined;
     }
 
     @preDestroy()
@@ -71,12 +73,12 @@ export class SelectionService implements Disposable {
     protected init(): void {
         this.toDispose.push(
             this.connectionManager.onDidDispose(client => {
-                this.selectionMap.delete(client.clientId);
+                this.selectionTracker.clearSelection(client.clientId);
             }),
             this.connectionManager.onDidViewStateChange(event => {
                 let state: SelectionState = { selectedElementsIDs: [], deselectedElementsIDs: [] };
                 if (event.webviewPanel.active) {
-                    state = this.selectionMap.get(event.client.clientId) ?? state;
+                    state = (this.selectionTracker.getSelection(event.client.clientId) as SelectionState | undefined) ?? state;
                 }
                 const client = event.client;
 
@@ -85,12 +87,11 @@ export class SelectionService implements Disposable {
                     state
                 });
             }),
-            this.connector.onSelectionUpdate(state => {
-                if (this.connectionManager.activeClient) {
-                    this.selectionMap.set(this.connectionManager.activeClient.clientId, state);
+            this.selectionTracker.onDidSelectionChange(event => {
+                if (this.connectionManager.activeClient?.clientId === event.clientId) {
                     this.onDidSelectionChangeEmitter.fire({
-                        clientId: this.connectionManager.activeClient.clientId,
-                        state
+                        clientId: event.clientId,
+                        state: event.selection as SelectionState
                     });
                 }
             })

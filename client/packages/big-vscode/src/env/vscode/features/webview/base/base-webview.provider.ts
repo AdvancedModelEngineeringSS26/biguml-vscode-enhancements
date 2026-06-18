@@ -7,14 +7,14 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type { ActionDispatcher, ActionListener } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import type { Disposable } from '@eclipse-glsp/vscode-integration';
 import { DisposableCollection } from '@eclipse-glsp/vscode-integration';
 import { inject, injectable } from 'inversify';
 import * as vscode from 'vscode';
 import { WebviewProtocol } from '../../../../common/index.js';
 import { TYPES } from '../../../vscode-common.types.js';
-import type { ActionListener } from '../../action/action-listener.js';
-import type { BigGlspVSCodeConnector } from '../../connector/glsp-vscode-connector.js';
 import type { WebviewProviderOptions } from '../webview.types.js';
 import type { ActionWebviewMessenger } from './webview-action-messenger.js';
 import { ReactHtmlProvider } from './webview-html-provider.js';
@@ -22,8 +22,8 @@ import type { WebviewMessenger } from './webview-messenger.js';
 
 @injectable()
 export abstract class BaseWebviewProvider implements Disposable {
-    @inject(TYPES.GlspVSCodeConnector)
-    protected readonly connector: BigGlspVSCodeConnector;
+    @inject(CONTRIBUTION_TYPES.ActionDispatcher)
+    protected readonly actionDispatcher: ActionDispatcher;
 
     @inject(TYPES.ExtensionContext)
     protected readonly extensionContext: vscode.ExtensionContext;
@@ -34,7 +34,7 @@ export abstract class BaseWebviewProvider implements Disposable {
     @inject(TYPES.ActionWebviewMessenger)
     protected readonly actionMessenger: ActionWebviewMessenger;
 
-    @inject(TYPES.ActionListener)
+    @inject(CONTRIBUTION_TYPES.ActionListener)
     protected readonly actionListener: ActionListener;
 
     protected readonly toDispose = new DisposableCollection();
@@ -89,11 +89,13 @@ export abstract class BaseWebviewProvider implements Disposable {
 
     protected resolveActionProtocol(_messenger: ActionWebviewMessenger): Disposable {
         const disposables = new DisposableCollection();
+
         disposables.push(
             this.actionMessenger.onActionMessage(message => {
-                this.connector.dispatchAction(message.action, message.clientId);
+                this.actionDispatcher.dispatch(message.action, message.clientId);
             })
         );
+
         return disposables;
     }
 

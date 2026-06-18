@@ -8,4 +8,5 @@
  **********************************************************************************/
 
 export * from './theme-integration.js';
+export * from './theme-client-registration.contribution.js';
 export * from './theme.module.js';

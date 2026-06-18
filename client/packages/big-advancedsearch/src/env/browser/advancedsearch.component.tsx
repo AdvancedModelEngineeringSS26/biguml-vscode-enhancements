@@ -16,14 +16,15 @@ import { HighlightElementActionResponse, RequestHighlightElementAction } from '.
 import type { SearchResult } from '../common/searchresult.js';
 
 export function AdvancedSearch(): ReactElement {
-    const { clientId, dispatchAction, listenAction } = useContext(VSCodeContext);
+    const { clientId, dispatchAction, requestAction, listenAction } = useContext(VSCodeContext);
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<SearchResult[]>([]);
 
-    const fireSearch = (value: string) => {
+    const fireSearch = async (value: string) => {
         setQuery(value);
         if (clientId) {
-            dispatchAction(RequestAdvancedSearchAction.create({ query: value }));
+            const response = await requestAction<AdvancedSearchActionResponse>(RequestAdvancedSearchAction.create({ query: value }));
+            setResults(response.results);
         }
     };
 

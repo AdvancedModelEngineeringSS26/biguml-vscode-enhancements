@@ -6,8 +6,11 @@
  *
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
+import type { CacheActionListener } from '@borkdominik-biguml/big-vscode-contribution/vscode';
+import { ActionRequestHandlerRegistry } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import type { WebviewMessenger, WebviewViewProviderOptions } from '@borkdominik-biguml/big-vscode/vscode';
-import { type CacheActionListener, TYPES, WebviewViewProvider } from '@borkdominik-biguml/big-vscode/vscode';
+import { TYPES, WebviewViewProvider } from '@borkdominik-biguml/big-vscode/vscode';
+import type { ActionMessage } from '@eclipse-glsp/vscode-integration';
 import { DisposableCollection } from '@eclipse-glsp/vscode-integration';
 import { inject, injectable, postConstruct } from 'inversify';
 import type { Disposable } from 'vscode';
@@ -29,6 +32,9 @@ export const RevisionManagementId = Symbol('RevisionmanagementViewId');
 export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
     @inject(RevisionManagementService)
     protected readonly service: RevisionManagementService;
+
+    @inject(ActionRequestHandlerRegistry)
+    protected readonly actionRequestHandlerRegistry: ActionRequestHandlerRegistry;
 
     protected actionCache: CacheActionListener;
 
@@ -55,7 +61,7 @@ export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
         const disposables = new DisposableCollection();
         disposables.push(
             super.resolveWebviewProtocol(messenger),
-            this.actionCache.onDidChange(message => this.actionMessenger.dispatch(message)),
+            this.actionCache.onDidChange((message: ActionMessage) => this.actionMessenger.dispatch(message)),
             vscode.commands.registerCommand('timeline.import', () => {
                 // console.log('timeline.import command triggered');
                 this.webviewView?.webview.postMessage({ action: 'import' });
@@ -78,7 +84,7 @@ export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
 
         // Handle ExportSnapshot action triggered by webview button
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest(RequestExportSnapshotAction.KIND, async () => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest(RequestExportSnapshotAction.KIND, async () => {
                 // console.log(
                 //   "[RevisionManagementProvider] ExportSnapshot action received",
                 // );
@@ -88,7 +94,7 @@ export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
         );
 
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest(RequestSaveFileAction.KIND, async () => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest(RequestSaveFileAction.KIND, async () => {
                 // console.log('[RevisionManagementProvider] RequestSaveFileAction received');
                 this.service.createSnapshot('Manual entry');
                 return { kind: 'noop' } as any;
@@ -96,7 +102,7 @@ export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
         );
 
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest(RequestImportSnapshotAction.KIND, async (message: any) => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest(RequestImportSnapshotAction.KIND, async (message: any) => {
                 // console.log('[RevisionManagementProvider] ImportSnapshot action received');
                 await this.service.importSnapshot(message.action.importedSnapshots);
                 return { kind: 'noop' } as any;
@@ -104,7 +110,7 @@ export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
         );
 
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest(RequestChangeSnapshotNameAction.KIND, async (message: any) => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest(RequestChangeSnapshotNameAction.KIND, async (message: any) => {
                 // console.log('[RevisionManagementProvider] RequestChangeSnapshotNameAction action received');
                 await this.service.changeSnapshotName(message.action.snapshotId, message.action.name);
                 return { kind: 'noop' } as any;
@@ -112,7 +118,7 @@ export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
         );
 
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest(RequestRestoreSnapshotAction.KIND, async message => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest(RequestRestoreSnapshotAction.KIND, async message => {
                 const action = message.action as RequestRestoreSnapshotAction;
                 const snapshotId = action.snapshotId;
 
@@ -124,7 +130,7 @@ export class RevisionManagementWebviewViewProvider extends WebviewViewProvider {
         );
 
         this.toDispose.push(
-            this.actionListener.handleVSCodeRequest(RequestDeleteSnapshotAction.KIND, async message => {
+            this.actionRequestHandlerRegistry.handleVSCodeRequest(RequestDeleteSnapshotAction.KIND, async message => {
                 const action = message.action as RequestDeleteSnapshotAction;
                 const snapshotId = action.snapshotId;
 

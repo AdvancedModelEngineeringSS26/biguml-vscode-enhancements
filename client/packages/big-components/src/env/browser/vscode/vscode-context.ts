@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: MIT
  **********************************************************************************/
 
-import type { Action } from '@eclipse-glsp/protocol';
+import type { Action, ResponseAction } from '@eclipse-glsp/protocol';
 import { createContext } from 'react';
 import type { NotificationHandler, NotificationType } from 'vscode-messenger-common';
 
@@ -36,6 +36,11 @@ export interface VSCodeContext {
      * The client id will be automatically added to the action.
      */
     dispatchAction: (action: Action) => void;
+    /**
+     * Dispatch a request action and wait for the correlated response.
+     * The client id will be automatically added to the action message.
+     */
+    requestAction: <TResponse extends ResponseAction = ResponseAction>(action: Action) => Promise<TResponse>;
 }
 
 export const VSCodeContext = createContext<VSCodeContext>({} as any);

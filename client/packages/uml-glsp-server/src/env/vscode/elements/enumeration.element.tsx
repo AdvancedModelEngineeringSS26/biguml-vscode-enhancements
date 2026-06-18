@@ -34,7 +34,7 @@ export function GEnumerationNodeElement(props: GEnumerationNodeElementProps): GM
     const enumNode = new GEnumerationNode();
     enumNode.id = id;
     enumNode.name = node.name;
-    enumNode.cssClasses = ['uml-node'];
+    enumNode.cssClasses = ['uml-node', 'uml-enumeration-node'];
     enumNode.children = [];
 
     if (position) {

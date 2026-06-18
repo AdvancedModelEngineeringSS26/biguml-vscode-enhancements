@@ -11,7 +11,7 @@ import type { Disposable } from '@eclipse-glsp/vscode-integration';
 import { injectable } from 'inversify';
 import type { WebviewPanel, WebviewView } from 'vscode';
 import { Messenger } from 'vscode-messenger';
-import type { MessageParticipant, NotificationHandler, NotificationType } from 'vscode-messenger-common';
+import type { MessageParticipant, NotificationHandler, NotificationType, RequestHandler, RequestType } from 'vscode-messenger-common';
 
 @injectable()
 export class WebviewMessenger implements Disposable {
@@ -61,8 +61,18 @@ export class WebviewMessenger implements Disposable {
         });
     }
 
+    onRequest<P, R>(type: RequestType<P, R>, handler: RequestHandler<P, R>): Disposable {
+        return this.messenger.onRequest(type, handler, {
+            sender: this.participant
+        });
+    }
+
     sendNotification<P>(type: NotificationType<P>, payload: P): void {
         this.messenger.sendNotification(type, this.participant, payload);
+    }
+
+    sendRequest<P, R>(type: RequestType<P, R>, payload: P): Promise<R> {
+        return this.messenger.sendRequest(type, this.participant, payload);
     }
 }
 

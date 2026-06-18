@@ -13,7 +13,12 @@ import { minimapModule } from '@borkdominik-biguml/big-minimap/glsp-client';
 import { outlineModule } from '@borkdominik-biguml/big-outline/glsp-client';
 import { propertyPaletteModule } from '@borkdominik-biguml/big-property-palette/glsp-client';
 import { SemanticModelResponseAction } from '@borkdominik-biguml/uml-glsp-server';
+import { ClassDiagramNodeTypes } from '@borkdominik-biguml/uml-glsp-server/gen/common';
 import {
+    FeatureModule,
+    overrideModelElement,
+    RectangularNodeView,
+    svg,
     type ContainerConfiguration,
     type IActionDispatcher,
     type IDiagramStartup,
@@ -21,6 +26,7 @@ import {
     bindAsService,
     bindOrRebind
 } from '@eclipse-glsp/client';
+import { GClassNode } from '../uml/elements/class/class.element.js';
 import { FocusStateChangedAction } from '@eclipse-glsp/client/lib/base/focus/focus-state-change-action.js';
 import { type MaybePromise } from '@eclipse-glsp/protocol';
 import { GLSPStarter } from '@eclipse-glsp/vscode-integration-webview';
@@ -39,15 +45,29 @@ import { UmlHostExtensionActionHandler } from './vscode-extension-action-handler
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import inversify = require('inversify');
 
+(window as any).glspAPI = {
+    FeatureModule,
+    overrideModelElement,
+    svg,
+    RectangularNodeView,
+    GClassNode,
+    injectable: inversify.injectable,
+    CLASS_TYPE: ClassDiagramNodeTypes.CLASS,
+    ABSTRACT_CLASS_TYPE: ClassDiagramNodeTypes.ABSTRACT_CLASS,
+    DATA_TYPE: ClassDiagramNodeTypes.DATA_TYPE
+};
+
 class UmlStarter extends GLSPStarter {
     createContainer(...containerConfiguration: ContainerConfiguration): inversify.Container {
+        const pluginModules: ContainerConfiguration = (window as any).__glspPlugins ?? [];
         const container = createUmlDiagramContainer(
             ...containerConfiguration,
             outlineModule,
             minimapModule,
             propertyPaletteModule,
             codeGenerationModule,
-            advancedSearchModule
+            advancedSearchModule,
+            ...pluginModules
         );
 
         return container;

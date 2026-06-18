@@ -9,5 +9,5 @@
 
 export * from './connection-manager.js';
 export * from './connector.module.js';
-export * from './glsp-vscode-connector.js';
+export { BigVscodeMessagePropagationFilter } from './glsp-vscode-connector.js';
 export * from './selection-service.js';

@@ -35,7 +35,7 @@ export function GClassNodeElement(props: GClassNodeElementProps): GModelElement 
     classNode.id = id;
     classNode.name = node.name;
     classNode.isAbstract = node.isAbstract;
-    classNode.cssClasses = ['uml-node'];
+    classNode.cssClasses = node.isAbstract ? ['uml-node', 'uml-abstract-class-node'] : ['uml-node', 'uml-class-node'];
     classNode.children = [];
 
     if (position) {

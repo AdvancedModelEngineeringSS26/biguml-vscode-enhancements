@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: MIT
  *********************************************************************************/
 import { Container } from 'inversify';
+import { createVscodeContributionModule } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import type * as vscode from 'vscode';
 import { actionModule } from './features/action/action.module.js';
 import { commandModule } from './features/command/command.module.js';
@@ -35,6 +36,7 @@ export function vscodeModule(
     container.bind(TYPES.GlspDiagramSettings).toConstantValue(options.diagram);
 
     container.load(
+        createVscodeContributionModule(),
         disposableModule,
         actionModule,
         commandModule,

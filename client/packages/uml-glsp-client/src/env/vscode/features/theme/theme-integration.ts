@@ -6,7 +6,9 @@
  *
  * SPDX-License-Identifier: MIT
  *********************************************************************************/
-import { TYPES, type ActionDispatcher } from '@borkdominik-biguml/big-vscode/vscode';
+import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
+import type { ActionDispatcher as ContributionActionDispatcher } from '@borkdominik-biguml/big-vscode-contribution/vscode';
+import type { ClientManager } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import { SetUmlThemeAction, type UmlTheme } from '@borkdominik-biguml/uml-glsp-client';
 import { type GlspVscodeClient } from '@eclipse-glsp/vscode-integration';
 import { inject, injectable, postConstruct } from 'inversify';
@@ -17,8 +19,10 @@ export class ThemeIntegration {
     protected readonly disposables: vscode.Disposable[] = [];
 
     constructor(
-        @inject(TYPES.ActionDispatcher)
-        protected readonly actionDispatcher: ActionDispatcher
+        @inject(CONTRIBUTION_TYPES.ActionDispatcher)
+        protected readonly actionDispatcher: ContributionActionDispatcher,
+        @inject(CONTRIBUTION_TYPES.ClientManager)
+        protected readonly clientManager: ClientManager
     ) {}
 
     @postConstruct()
@@ -28,11 +32,14 @@ export class ThemeIntegration {
     }
 
     updateTheme(client: GlspVscodeClient): void {
-        this.actionDispatcher.dispatchToClient(client.clientId, this.createAction());
+        this.actionDispatcher.dispatch(this.createAction(), client.clientId);
     }
 
     refresh(): void {
-        this.actionDispatcher.broadcast(this.createAction());
+        const action = this.createAction();
+        this.clientManager.clients.forEach(client => {
+            this.actionDispatcher.dispatch(action, client.clientId);
+        });
     }
 
     dispose(): void {

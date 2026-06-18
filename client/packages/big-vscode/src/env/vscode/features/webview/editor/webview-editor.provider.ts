@@ -65,12 +65,16 @@ export abstract class WebviewEditorProvider extends BaseWebviewProvider implemen
 
         webview.options = {
             enableScripts: true,
-            localResourceRoots: [this.extensionContext.extensionUri]
+            localResourceRoots: this.getLocalResourceRoots(document)
         };
 
         this.resolveMessenger(webviewPanel);
 
         webview.html = this.resolveHtml(webview, document);
+    }
+
+    protected getLocalResourceRoots(_document: CustomDocument): Uri[] {
+        return [this.extensionContext.extensionUri];
     }
 
     saveCustomDocument(_document: CustomDocument, _cancellation: CancellationToken): Thenable<void> {

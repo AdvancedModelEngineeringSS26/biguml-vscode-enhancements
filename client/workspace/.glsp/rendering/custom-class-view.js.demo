@@ -1,0 +1,70 @@
+// Rendering plugin: renders Class nodes as circles, abstract classes as pink hexagons, datatypes as green triangles.
+// Loaded automatically by the editor from .glsp/rendering/*.js.
+const { FeatureModule, overrideModelElement, svg, RectangularNodeView, GClassNode, injectable, CLASS_TYPE, ABSTRACT_CLASS_TYPE, DATA_TYPE } = window.glspAPI;
+
+class CustomClassView extends RectangularNodeView {
+    render(element, context) {
+        if (!this.isVisible(element, context)) return undefined;
+        if (element.isAbstract) {
+            return renderHexagon(element, context);
+        }
+        const w = Math.max(0, element.bounds.width);
+        const h = Math.max(0, element.bounds.height);
+        const cx = w / 2;
+        const cy = h / 2;
+        const r = Math.min(cx, cy) * 2;
+        return svg('g', { class: { selected: element.selected, mouseover: element.hoverFeedback } },
+            svg('circle', { attrs: { cx, cy, r, fill: '#2196F3', stroke: '#0D47A1', 'stroke-width': 2 } }),
+            context.renderChildren(element)
+        );
+    }
+}
+injectable()(CustomClassView);
+
+function renderHexagon(element, context) {
+    const w = Math.max(0, element.bounds.width);
+    const h = Math.max(0, element.bounds.height);
+    const cx = w / 2, cy = h / 2;
+    const rx = w / 2, ry = h / 2;
+    const points = [
+        [cx - rx,     cy      ],
+        [cx - rx / 2, cy - ry ],
+        [cx + rx / 2, cy - ry ],
+        [cx + rx,     cy      ],
+        [cx + rx / 2, cy + ry ],
+        [cx - rx / 2, cy + ry ],
+    ].map(([x, y]) => `${x},${y}`).join(' ');
+    return svg('g', { class: { selected: element.selected, mouseover: element.hoverFeedback } },
+        svg('polygon', { attrs: { points, fill: '#F48FB1', stroke: '#880E4F', 'stroke-width': 2 } }),
+        context.renderChildren(element)
+    );
+}
+
+class AbstractClassView extends RectangularNodeView {
+    render(element, context) {
+        if (!this.isVisible(element, context)) return undefined;
+        return renderHexagon(element, context);
+    }
+}
+injectable()(AbstractClassView);
+
+class DataTypeView extends RectangularNodeView {
+    render(element, context) {
+        if (!this.isVisible(element, context)) return undefined;
+        const w = Math.max(0, element.bounds.width);
+        const h = Math.max(0, element.bounds.height);
+        const points = `${w / 2},0 ${w},${h} 0,${h}`;
+        return svg('g', { class: { selected: element.selected, mouseover: element.hoverFeedback } },
+            svg('polygon', { attrs: { points, fill: '#C8E6C9', stroke: '#2E7D32', 'stroke-width': 2 } }),
+            context.renderChildren(element)
+        );
+    }
+}
+injectable()(DataTypeView);
+
+window.__glspPlugins.push(new FeatureModule((bind, unbind, isBound, rebind) => {
+    const ctx = { bind, unbind, isBound, rebind };
+    overrideModelElement(ctx, CLASS_TYPE, GClassNode, CustomClassView);
+    overrideModelElement(ctx, ABSTRACT_CLASS_TYPE, GClassNode, AbstractClassView);
+    overrideModelElement(ctx, DATA_TYPE, GClassNode, DataTypeView);
+}));
