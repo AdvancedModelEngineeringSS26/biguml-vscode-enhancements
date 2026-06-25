@@ -13,9 +13,11 @@ import {
     ComputedBoundsActionHandler,
     type MaybePromise
 } from '@eclipse-glsp/server';
+import { injectable } from 'inversify';
 
 export const ForceReloadFromDisk = 'forceReloadFromDisk';
 
+@injectable()
 export class ReloadAwareComputedBoundsActionHandler extends ComputedBoundsActionHandler {
     override execute(action: ComputedBoundsAction): MaybePromise<Action[]> {
         const model = this.modelState.root;
