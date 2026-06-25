@@ -200,8 +200,9 @@ export class BigGlspVSCodeConnector<TDocument extends vscode.CustomDocument = vs
     }
 
     protected disposeClientSessionArgs(client: GlspVscodeClient<TDocument>): Args | undefined {
+        const sourcePath = ((client.document as any).sourceUri as vscode.Uri | undefined)?.path ?? client.document.uri.path;
         return {
-            sourceUri: client.document.uri.path
+            sourceUri: sourcePath
         };
     }
 }

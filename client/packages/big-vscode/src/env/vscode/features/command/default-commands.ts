@@ -7,9 +7,10 @@
  * SPDX-License-Identifier: MIT
  *********************************************************************************/
 import { TYPES as CONTRIBUTION_TYPES } from '@borkdominik-biguml/big-vscode-contribution';
-import type { ActionDispatcher } from '@borkdominik-biguml/big-vscode-contribution/vscode';
+import type { ActionDispatcher, ActionListener } from '@borkdominik-biguml/big-vscode-contribution/vscode';
 import { TYPES, type GlspDiagramSettings, type SelectionService } from '@borkdominik-biguml/big-vscode/vscode';
 import { EnableToolsAction, FocusDomAction } from '@borkdominik-biguml/uml-glsp-server';
+import { FocusStateChangedAction } from '@eclipse-glsp/client/lib/base/focus/focus-state-change-action.js';
 import { CenterAction, FitToScreenAction, RequestExportSvgAction, SelectAllAction } from '@eclipse-glsp/protocol';
 import { inject, injectable, postConstruct } from 'inversify';
 import { SetUIExtensionVisibilityAction } from 'sprotty/lib/base/ui-extensions/ui-extension-registry.js';
@@ -21,15 +22,27 @@ export class DefaultCommandsProvider {
         @inject(TYPES.ExtensionContext) protected readonly extensionContext: vscode.ExtensionContext,
         @inject(TYPES.GlspDiagramSettings) protected readonly diagramSettings: GlspDiagramSettings,
         @inject(CONTRIBUTION_TYPES.ActionDispatcher) protected readonly actionDispatcher: ActionDispatcher,
+        @inject(CONTRIBUTION_TYPES.ActionListener) protected readonly actionListener: ActionListener,
         @inject(TYPES.SelectionService) protected readonly selectionService: SelectionService
     ) {}
 
     @postConstruct()
     protected init(): void {
         let selectedElements: string[] = [];
+        const diagramFocusedContextKey = 'glspDiagramFocused';
+
+        void vscode.commands.executeCommand('setContext', diagramFocusedContextKey, false);
 
         const selectionStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
         this.extensionContext.subscriptions.push(selectionStatusBarItem);
+
+        this.extensionContext.subscriptions.push(
+            this.actionListener.registerListener(message => {
+                if (FocusStateChangedAction.is(message.action)) {
+                    void vscode.commands.executeCommand('setContext', diagramFocusedContextKey, message.action.hasFocus);
+                }
+            })
+        );
 
         this.extensionContext.subscriptions.push(
             vscode.commands.registerCommand(`${this.diagramSettings.name}.fit`, () => {

@@ -94,8 +94,9 @@ export class DocumentManager<TDocument extends vscode.CustomDocument = vscode.Cu
         const dispatched = this.actionDispatcher.dispatch(
             RequestModelAction.create({
                 options: {
-                    sourceUri: document.uri.toString(),
-                    diagramType
+                    sourceUri: this.revertSourceUri(document),
+                    diagramType,
+                    forceReloadFromDisk: true
                 }
             }),
             clientId
@@ -104,6 +105,14 @@ export class DocumentManager<TDocument extends vscode.CustomDocument = vscode.Cu
         if (!dispatched) {
             throw new Error(`DocumentManager.revertDocument failed: could not dispatch revert for client ${clientId}.`);
         }
+    }
+
+    protected revertSourceUri(document: TDocument): string {
+        const documentUris = document as TDocument & {
+            restoredModelUri?: vscode.Uri;
+            sourceUri?: vscode.Uri;
+        };
+        return documentUris.restoredModelUri?.toString() ?? documentUris.sourceUri?.toString() ?? document.uri.toString();
     }
 
     dispose(): void {
