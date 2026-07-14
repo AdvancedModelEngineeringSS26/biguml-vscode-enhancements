@@ -2,58 +2,33 @@
 
 ## What we did
 
-- Created the generic `big-vscode-contribution` package and integrated its
-  `createVscodeContributionModule()` into bigUML's VS Code dependency-injection
-  container.
-- Replaced the responsibilities of the former monolithic connector with focused
-  services for client lifecycle, action routing/dispatching, selection, document
-  lifecycle, diagnostics, progress, navigation, SVG export, and webview endpoint
-  creation.
-- Migrated consumers to the new action runtime where possible. The former
-  `BigGlspVSCodeConnector` remains as a deprecated compatibility facade so that
-  existing features continue to work during migration.
+- Created the generic `big-vscode-contribution` package and registered its
+  InversifyJS 6 module in bigUML's VS Code container.
+- Split the former connector into focused services for client lifecycle,
+  action routing and dispatching, document lifecycle, selection, diagnostics,
+  progress, navigation, SVG export, and endpoint creation.
+- Migrated consumers where possible. `BigGlspVSCodeConnector` remains as a
+  deprecated compatibility facade during the transition.
 
 ## How we solved it
 
-- Used InversifyJS 6 bindings and singleton services in one composition module.
-- Introduced `VscodeActionHandler` as a multi-bound contribution point. The
-  `ActionRouter` selects a handler by GLSP action kind; duplicate registrations
-  fail explicitly instead of silently choosing an order-dependent handler.
-- Added separate contribution points for message propagation, client
-  registration, and endpoint initialization. This lets product-specific packages
-  extend the generic runtime without importing or subclassing its connector.
-- Used `WebviewEndpointFactory` to create an endpoint in a child container,
-  allowing endpoint-scoped dependencies and contributions.
+`VscodeActionHandler` is a multi-bound contribution point: `ActionRouter`
+selects exactly one handler for an incoming GLSP action kind and rejects
+duplicate registrations. Further extension points support message filtering,
+client-registration hooks, and endpoint initialization. `WebviewEndpointFactory`
+creates endpoints in child containers, allowing endpoint-scoped dependencies.
 
-## Problems encountered
+## Problems, missing parts, and future work
 
-- The upstream design concentrated unrelated behaviour and direct object
-  creation in one connector, so separating concerns required preserving several
-  established lifecycle and message-routing contracts.
-- Existing bigUML packages depended on the old broad connector API. A gradual
-  migration was necessary; the compatibility facade avoids a disruptive,
-  all-at-once change.
+The upstream connector mixed transport, editor lifecycle, document state, and
+VS Code UI concerns, making isolated changes difficult. Existing bigUML packages
+also depended on its broad API, so migration must remain incremental. Future work
+is to migrate the remaining consumers, remove the compatibility facade, add
+service-level tests, and prepare the generic package for upstream contribution.
 
-## Missing parts and future work
+The new architecture has more DI bindings, but its explicit extension points are
+preferable to adding new connector subclasses.
 
-- Complete removal of the deprecated compatibility facade after all consumers
-  use the contribution-native APIs.
-- Extract the generic package for potential upstream contribution once its API
-  has stabilised.
-
-## Architecture assessment
-
-The original connector was difficult to customise and test because it combined
-transport, editor lifecycle, document state, and action-specific VS Code UI
-behaviour. The new boundaries make these concerns replaceable, but they also
-introduce more DI bindings to maintain. New features should use the documented
-contribution points rather than adding another connector subclass.
-
-## Further documentation
-
-- [Architecture](client/packages/big-vscode-contribution/docs/architecture.md)
-  explains the service catalogue, runtime flows, and extension points.
-- [Migration guide](client/packages/big-vscode-contribution/docs/migration-guide.md)
-  maps legacy connector APIs to the new services.
-- [Manual verification](client/packages/big-vscode-contribution/docs/manual-verification.md)
-  lists the smoke, multi-editor, lifecycle, diagnostics, export, and reload checks.
+Further details: [architecture](../client/packages/big-vscode-contribution/docs/architecture.md),
+[migration guide](../client/packages/big-vscode-contribution/docs/migration-guide.md), and
+[manual verification](../client/packages/big-vscode-contribution/docs/manual-verification.md).
