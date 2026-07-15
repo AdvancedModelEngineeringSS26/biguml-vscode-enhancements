@@ -141,9 +141,21 @@ working model is the key architectural boundary that makes those semantics safe.
 
 ## Feature 4 — Problem marker removal strategy
 
-<!-- TODO: Summarise the implemented marker-removal behaviour, its distinction
-between live and batch validation markers, verification, remaining limitations,
-and any upstream contribution work. -->
+### What we did
+
+VS Code erased all diagnostics when a diagram editor closed, discarding live markers the server will reissue on reopen. Theia keeps live markers and only removes batch markers (from explicit validation runs). This mismatch is tracked as [eclipse-glsp/glsp#990](https://github.com/eclipse-glsp/glsp/issues/990).
+
+We contributed a fix to `eclipse-glsp/glsp-vscode-integration` (`GlspVscodeConnector.handleSetMarkersAction`) and applied the same logic to `DiagnosticsHandler` in `big-vscode-contribution`.
+
+### How we solved it
+
+`SetMarkersAction.reason` is `MarkersReason.BATCH` or `MarkersReason.LIVE` since protocol v2.5.0. A nested map `markersByReason: Map<uri, Map<reason, Diagnostic[]>>` tracks diagnostics by document and reason. On each incoming action the entry for that reason is updated and the full merge is written to the `DiagnosticCollection`. On editor close, only the `BATCH` entry is deleted; remaining `LIVE` markers stay visible.
+
+Because Feature 1 replaced `GlspVscodeConnector` with DI-managed services, the upstream fix could not be consumed directly. `DiagnosticsHandler` is the equivalent handler in the new architecture, so the logic was applied there instead.
+
+### Problems, missing parts, and future work
+
+The collision with Feature 1 forced a duplication of the tracking logic rather than a shared dependency. Extracting a `MarkerDiagnosticsTracker` utility upstream that `DiagnosticsHandler` delegates to would resolve this. The upstream PR is still pending review. Marker positions are fixed at `Range(0,0,0,0)` as GLSP markers carry no line/column data.
 
 ## Feature 5 — Customization API: stylesheets and rendering plugins
 
