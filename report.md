@@ -139,6 +139,15 @@ The full lifecycle code is necessarily more complex because VS Code requires a
 `CustomEditorProvider` to own save, backup, and revert semantics. Isolating the
 working model is the key architectural boundary that makes those semantics safe.
 
+### Further details
+
+See [Feature 3 implementation report](client/docs/feature3-implementation-details.md) for detailed discussion of:
+
+- Custom editor lifecycle and restore model design
+- Reload and revert semantics
+- Keybinding integration and focus coordination
+- VS Code API findings
+
 ## Feature 4 — Problem marker removal strategy
 
 ### What we did
