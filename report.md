@@ -131,12 +131,12 @@ We focused on custom-editor lifecycle behaviour and keybinding conflicts.
 
 ![Diagram focus tracking and context-sensitive command handling](feature3.gif)
 
-*Feature 3 demonstration: focus changes across the diagram and tool palette
-drive the VS Code context used for command and keybinding scoping.*
+_Feature 3 demonstration: focus changes across the diagram and tool palette
+drive the VS Code context used for command and keybinding scoping._
 
 ![Selection and native undo/redo integration](feature3.1.gif)
 
-*Feature 3 demonstration: Selection and undo/redo integration.*
+_Feature 3 demonstration: Selection and undo/redo integration._
 
 ### VS Code integration protocol
 
