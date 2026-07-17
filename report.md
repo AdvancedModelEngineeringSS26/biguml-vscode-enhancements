@@ -122,7 +122,16 @@ We focused on custom-editor lifecycle behaviour and keybinding conflicts.
   extension host, which updates that key with `setContext`; undo/redo also avoid
   text-input focus.
 
+- VS Code has no native custom-editor selection API, so selection is exposed
+  through `SelectionTracker`/`SelectionService`, VS Code context keys, and a
+  status-bar indicator.
+- GLSP undo/redo is bridged to VS Code through `CustomDocumentEditEvent`
+  callbacks; `UndoAction`/`RedoAction` are dispatched to GLSP and the dirty
+  state is reset when the saved state is reached.
+
 ![Diagram focus tracking and context-sensitive command handling](feature3.gif)
+
+![Selection and native undo/redo integration](feature3.1.gif)
 
 _Feature 3 demonstration: focus changes across the diagram and tool palette
 drive the VS Code context used for command and keybinding scoping._
