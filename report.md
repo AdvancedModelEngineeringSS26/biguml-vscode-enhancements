@@ -59,8 +59,8 @@ without routing through the old connector wrappers.
 
 ![Native extension-host action handling in the running VS Code extension](feature2.gif)
 
-_Feature 2 demonstration: extension-host integration reacting to actions from
-the active diagram._
+*Feature 2 demonstration: extension-host integration reacting to actions from
+the active diagram.*
 
 ### Runtime flow
 
@@ -133,21 +133,25 @@ We focused on custom-editor lifecycle behaviour and keybinding conflicts.
 
 ![Selection and native undo/redo integration](feature3.1.gif)
 
-_Feature 3 demonstration: focus changes across the diagram and tool palette
-drive the VS Code context used for command and keybinding scoping._
+*Feature 3 demonstration: focus changes across the diagram and tool palette
+drive the VS Code context used for command and keybinding scoping.*
 
 ### VS Code integration protocol
 
-| VS Code integration point                                                  | GLSP usage and applicability                                                                                                                 | Recommendation                                                                              |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `CustomEditorProvider` lifecycle and `workspace.fs`                        | Opening, resolving, dirty-state events, save, backup, revert, and disposal are used; this contribution improved backup, revert, and cleanup. | **Should fix:** complete reliable reload while retaining the isolated restore-model design. |
-| `WebviewPanel` view-state/disposal events                                  | Disposal participates in cleanup; view-state changes are not fully used.                                                                     | **Nice to have:** use view state for active-diagram tracking and persistence.               |
-| `activeCustomEditorId`, custom context keys, and keybinding `when` clauses | Used with `glspDiagramFocused`; `!inputFocus` protects text input. There is no public `window.activeCustomEditor` API.                       | **Keep:** debug the remaining search/navigation command path separately.                    |
-| Webview `setState/getState` and `WebviewPanelSerializer`                   | Not used; applicable to session and restart restoration.                                                                                     | **Should fix:** persist viewport state by document URI after GLSP initialization.           |
-| `retainContextWhenHidden` and `enableFindWidget`                           | The former may reduce reloads but does not replace lifecycle handling; the latter does not solve GLSP command conflicts.                     | **Nice to have / not a fix.**                                                               |
-| Selection context                                                          | VS Code has no native diagram-selection API; GLSP exposes selection through extension-specific actions and context keys.                     | **Keep extension-specific:** fix the selected-element context-key issue.                    |
-| Decorations, document links, and breadcrumbs                               | Text-editor decorations and document links do not directly apply to the canvas; breadcrumbs may be possible through symbols.                 | **Not applicable / nice to have:** investigate breadcrumbs only if needed.                  |
-| Workspace trust                                                            | Not investigated in this contribution.                                                                                                       | **Should audit** before treating workspace JavaScript plugins as production-ready.          |
+The specification names `docs/vscode-integration-protocol.md` as the core
+deliverable. Because the group submission must be a single report, the protocol
+is consolidated here instead of adding a separate repository document.
+
+| VS Code integration point | GLSP usage and applicability | Recommendation |
+| --- | --- | --- |
+| `CustomEditorProvider` lifecycle and `workspace.fs` | Opening, resolving, dirty-state events, save, backup, revert, and disposal are used; this contribution improved backup, revert, and cleanup. | **Should fix:** complete reliable reload while retaining the isolated restore-model design. |
+| `WebviewPanel` view-state/disposal events | Disposal participates in cleanup; view-state changes are not fully used. | **Nice to have:** use view state for active-diagram tracking and persistence. |
+| `activeCustomEditorId`, custom context keys, and keybinding `when` clauses | Used with `glspDiagramFocused`; `!inputFocus` protects text input. There is no public `window.activeCustomEditor` API. | **Keep:** debug the remaining search/navigation command path separately. |
+| Webview `setState/getState` and `WebviewPanelSerializer` | Not used; applicable to session and restart restoration. | **Should fix:** persist viewport state by document URI after GLSP initialization. |
+| `retainContextWhenHidden` and `enableFindWidget` | The former may reduce reloads but does not replace lifecycle handling; the latter does not solve GLSP command conflicts. | **Nice to have / not a fix.** |
+| Selection context | VS Code has no native diagram-selection API; GLSP exposes selection through extension-specific actions and context keys. | **Keep extension-specific:** fix the selected-element context-key issue. |
+| Decorations, document links, and breadcrumbs | Text-editor decorations and document links do not directly apply to the canvas; breadcrumbs may be possible through symbols. | **Not applicable / nice to have:** investigate breadcrumbs only if needed. |
+| Workspace trust | Not investigated in this contribution. | **Should audit** before treating workspace JavaScript plugins as production-ready. |
 
 Unlike Theia's DI-managed diagram services and widgets, VS Code exposes a custom
 editor as a webview and extension-owned document. bigUML must therefore bridge
@@ -222,8 +226,8 @@ extension.
 
 ![Live workspace stylesheet customization in a diagram](feature5.gif)
 
-_Feature 5 demonstration: editing a workspace-local stylesheet changes the
-appearance of diagram elements without rebuilding the extension._
+*Feature 5 demonstration: editing a workspace-local stylesheet changes the
+appearance of diagram elements without rebuilding the extension.*
 
 Dynamic `import()` was not viable in the webview sandbox. Static
 `<script type="module">` resources worked when the workspace was included in
