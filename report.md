@@ -60,30 +60,30 @@ without routing through the old connector wrappers.
 ### Runtime flow
 
 ```text
-                    +------------------+
-                    | Sidebar Webview  |
-                    +------------------+
-                             |
-                             v
-                    +------------------+
-                    | ActionDispatcher |
-                    +------------------+
-                             |
-                             v
-                    +------------------+
-                    |  ActionRouter    |
-                    +------------------+
-                      /              \
-                     v                v
-        +------------------+   +------------------+
-        | Extension Host   |   |   GLSP Server    |
-        +------------------+   +------------------+
-                      \            /
-                       \          /
-                        v        v
-                 +----------------------+
-                 | Correlated Response  |
-                 +----------------------+
+                         Outbound dispatch
+
+ +-----------------+     +------------------+     +------------------+
+ | Sidebar webview | --> | Extension-host  | --> | ActionDispatcher |
+ +-----------------+     | webview bridge  |     +------------------+
+                         +------------------+       |       |       |
+                                                    v       v       v
+                                                Diagram   GLSP   Extension-
+                                                webview  server  host handler
+
+                         Incoming processing
+
+ +---------------------------+     +--------------+     +----------------+
+ | Diagram webview or server | --> | ActionRouter | --> | Action handlers|
+ +---------------------------+     +--------------+     +----------------+
+                                          |
+                                          v
+                                  +----------------+
+                                  | ActionListener |
+                                  +----------------+
+                                          |
+                                          v
+                                  Correlated response /
+                                  interested consumer
 ```
 
 ### Problems, missing parts, and future work
@@ -93,6 +93,11 @@ as a compatibility layer while consumers migrate. Pending requests are rejected
 when a client is disposed, but explicit timeout/cancellation support and
 automated multi-client tests are still missing. Future consumers should inject
 the native services directly; the compatibility layer can then be removed.
+
+The contribution and UML client packages compile successfully, but the runtime
+behaviour described here is supported mainly by implementation inspection and
+manual verification. Automated coverage is still needed for duplicate handler
+registration, request correlation, client disposal, and concurrent clients.
 
 This separation makes client ownership, dispatching, observation, and request
 handling independently testable instead of coupling them to one connector.
@@ -112,18 +117,26 @@ We focused on custom-editor lifecycle behaviour and keybinding conflicts.
   extension host, which updates that key with `setContext`; undo/redo also avoid
   text-input focus.
 
-### VS Code API audit and outcome
+### VS Code integration protocol
 
-`CustomEditorProvider` lifecycle hooks (`open`, `resolve`, save, backup, revert,
-and dispose), `workspace.fs`, custom context keys, and keybinding `when` clauses
-are applicable and used. `activeCustomEditorId` is the appropriate built-in
-editor context; there is no public `window.activeCustomEditor` API.
+The specification names `docs/vscode-integration-protocol.md` as the core
+deliverable. Because the group submission must be a single report, the protocol
+is consolidated here instead of adding a separate repository document.
 
-VS Code does not provide a native diagram-selection API; GLSP selection must be
-exposed through extension-specific actions/context. Text-editor decorations and
-document links are not directly applicable to a canvas custom editor. Breadcrumbs,
-workspace-trust handling, and a detailed Theia comparison were not investigated
-in this contribution and remain documentation work.
+| VS Code integration point | GLSP usage and applicability | Recommendation |
+| --- | --- | --- |
+| `CustomEditorProvider` lifecycle and `workspace.fs` | Opening, resolving, dirty-state events, save, backup, revert, and disposal are used; this contribution improved backup, revert, and cleanup. | **Should fix:** complete reliable reload while retaining the isolated restore-model design. |
+| `WebviewPanel` view-state/disposal events | Disposal participates in cleanup; view-state changes are not fully used. | **Nice to have:** use view state for active-diagram tracking and persistence. |
+| `activeCustomEditorId`, custom context keys, and keybinding `when` clauses | Used with `glspDiagramFocused`; `!inputFocus` protects text input. There is no public `window.activeCustomEditor` API. | **Keep:** debug the remaining search/navigation command path separately. |
+| Webview `setState/getState` and `WebviewPanelSerializer` | Not used; applicable to session and restart restoration. | **Should fix:** persist viewport state by document URI after GLSP initialization. |
+| `retainContextWhenHidden` and `enableFindWidget` | The former may reduce reloads but does not replace lifecycle handling; the latter does not solve GLSP command conflicts. | **Nice to have / not a fix.** |
+| Selection context | VS Code has no native diagram-selection API; GLSP exposes selection through extension-specific actions and context keys. | **Keep extension-specific:** fix the selected-element context-key issue. |
+| Decorations, document links, and breadcrumbs | Text-editor decorations and document links do not directly apply to the canvas; breadcrumbs may be possible through symbols. | **Not applicable / nice to have:** investigate breadcrumbs only if needed. |
+| Workspace trust | Not investigated in this contribution. | **Should audit** before treating workspace JavaScript plugins as production-ready. |
+
+Unlike Theia's DI-managed diagram services and widgets, VS Code exposes a custom
+editor as a webview and extension-owned document. bigUML must therefore bridge
+focus, selection, lifecycle, and persistence state explicitly.
 
 ### Problems, missing parts, and future work
 
@@ -138,15 +151,6 @@ selection integration.
 The full lifecycle code is necessarily more complex because VS Code requires a
 `CustomEditorProvider` to own save, backup, and revert semantics. Isolating the
 working model is the key architectural boundary that makes those semantics safe.
-
-### Further details
-
-See [Feature 3 implementation report](client/docs/feature3-implementation-details.md) for detailed discussion of:
-
-- Custom editor lifecycle and restore model design
-- Reload and revert semantics
-- Keybinding integration and focus coordination
-- VS Code API findings
 
 ## Feature 4 — Problem marker removal strategy
 
@@ -178,11 +182,22 @@ extension.
   or delete.
 - Every `.glsp/rendering/*.js` file is loaded as a webview ES module. A curated
   `window.glspAPI` lets a plugin contribute a Sprotty `FeatureModule`; modules
-  are collected before the diagram DI container is created, so view overrides
-  take effect before the first render.
+  are intended to be collected before the diagram DI container is created, so
+  view overrides can take effect before the first render.
 - A colour-picker in the tool palette offers a simple alternative for per-element
   colours. It uses stable server-side CSS classes and persists choices in
   `localStorage`.
+
+Dynamic `import()` was not viable in the webview sandbox. Static
+`<script type="module">` resources worked when the workspace was included in
+`localResourceRoots`, and cache-busting prevented stale plugin versions. Import
+maps were not supported, so the prototype exposes the required GLSP/Sprotty APIs
+through `window.glspAPI`; a typed SDK remains the preferred long-term contract.
+
+The prototype relies on static plugin-module execution completing before the
+asynchronous GLSP initialization handshake creates the diagram container. This
+ordering worked in manual verification, but the implementation does not enforce
+it with an explicit plugin-readiness barrier.
 
 ### Customization flow
 
@@ -220,12 +235,21 @@ extension.
 
 The main challenges were granting the webview access to workspace resources,
 avoiding webview caching, and meeting the requirement that rendering overrides
-are registered before container initialization. Workspace JavaScript is executed
-without validation or sandboxing; this is an important limitation. Plugins are
-JavaScript-only, do not hot-reload, and receive only a small untyped global API.
-Colour settings are machine-local rather than workspace configuration.
+are registered before container initialization. Workspace plugins run inside the
+VS Code webview sandbox, but without validation or isolation from the diagram
+application. Plugins are JavaScript-only, do not hot-reload, and receive only a
+small untyped global API. Colour settings are machine-local rather than workspace
+configuration.
+
+Stylesheet discovery works for the usual single-editor case, but the provider
+currently stores custom style links in one shared array. Multiple open diagrams,
+especially from different workspace folders, can therefore overwrite one
+another's stylesheet state. The links should be keyed by document or panel, as
+the rendering-plugin list already is.
 
 Future work is a typed, versioned plugin SDK; optional `.tsx` bundling and a
-manifest; plugin validation/hot reload; and workspace-persisted colours. The
-current `window` handoff and string-based HTML injection work as a prototype but
-should be replaced by a typed API and structured HTML/CSP construction.
+manifest; plugin validation/hot reload; an explicit plugin-readiness barrier;
+per-editor stylesheet state; workspace-persisted colours; and automated coverage
+for plugin ordering and concurrent-editor customization. The current `window`
+handoff and string-based HTML injection work as a prototype but should be
+replaced by a typed API and structured HTML/CSP construction.
